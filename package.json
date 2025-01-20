@@ -1,0 +1,33 @@
+{
+  "bin": {
+    "libraries-watcher": "bin/libraries-watcher.js"
+  },
+  "name": "libraries-watcher",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "Watch libraries and sync changes into multiple other paths as an alternative to package-linking.",
+  "main": "src/libraries-watcher.js",
+  "scripts": {
+    "start": "node bin/libraries-watcher.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kaspernj/libraries-watcher.git"
+  },
+  "keywords": [
+    "libraries",
+    "watcher",
+    "package",
+    "link"
+  ],
+  "author": "kasper@diestoeckels.de",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/kaspernj/libraries-watcher/issues"
+  },
+  "homepage": "https://github.com/kaspernj/libraries-watcher#readme",
+  "dependencies": {
+    "inotify-remastered-plus": "^2.5.0"
+  }
+}
