@@ -17,11 +17,11 @@ class DirectoryListener {
       watch_for: args.watchFor || Inotify.IN_ALL_EVENTS,
       callback: this.callback
     })
-
-    this.watchSubDirs()
   }
 
   async watchSubDirs() {
+    console.log(`Watching ${this.path}`)
+
     const files = await fs.readdir(this.path, {withFileTypes: true})
 
     for (const file of files) {
@@ -38,16 +38,18 @@ class DirectoryListener {
         let shouldIgnore = false
 
         if (this.args.ignore) {
-          shouldIgnore = this.args.ignore({localPath, path: fullPath})
+          shouldIgnore = this.args.ignore({file, localPath, path: fullPath})
         }
 
         if (!shouldIgnore) {
           const directoryListenerArgs = {...this.args}
 
           directoryListenerArgs.localPath = localPath
-          directoryListenerArgs.path = `${this.args.path}/${file.name}`
+          directoryListenerArgs.path = `${this.path}/${file.name}`
 
           const directoryListener = new DirectoryListener(directoryListenerArgs)
+
+          await directoryListener.watchSubDirs()
 
           this.subDirsListeners[fullPath] = directoryListener
         }
@@ -135,12 +137,18 @@ class WatchedLibrary {
     })
   }
 
-  shouldIgnore = ({localPath, path}) => {
-    if (localPath.startsWith("build") || localPath.startsWith("src")) {
-      return false
+  async watch() {
+    await this.liraryListener.watchSubDirs()
+  }
+
+  shouldIgnore = ({file}) => {
+    const {name} = file
+
+    if (name.startsWith(".") || name == "node_modules") {
+      return true
     }
 
-    return true
+    return false
   }
 
   callback = async ({directoryListener, event, localPath, name, path, type}) => {
@@ -175,11 +183,18 @@ class LibrariesWatcher {
     if (restPropsKeys.length > 0) throw new Error(`Unknown properties: ${restPropsKeys}`)
     if (!libraries || !Array.isArray(libraries)) throw new Error(`libraries must be an array`)
 
+    this.libraries = libraries
     this.watchedLibraries = []
     this.inotify = new Inotify()
+  }
 
-    for (const library of libraries) {
-      this.watchedLibraries.push(new WatchedLibrary(library, this.inotify))
+  async watch() {
+    for (const library of this.libraries) {
+      const watchedLibrary = new WatchedLibrary(library, this.inotify)
+
+      await watchedLibrary.watch()
+
+      this.watchedLibraries.push(watchedLibrary)
     }
   }
 }

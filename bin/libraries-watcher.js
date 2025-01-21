@@ -31,5 +31,6 @@ if (!args.config) throw new Error("No config file specified")
 
 const configJson = await fs.readFile(args.config)
 const config = JSON.parse(configJson)
+const librariesWatcher = new LibrariesWatcher({libraries: config})
 
-new LibrariesWatcher({libraries: config})
+await librariesWatcher.watch()
