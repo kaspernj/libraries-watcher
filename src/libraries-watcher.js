@@ -182,10 +182,11 @@ class WatchedLibrary {
 
       if (this.verbose) console.log(`${localPath} ${type}`)
 
-      if (type == "created" || type == "modified") {
+      if (type == "created") {
         if (this.verbose) console.log(`Copy ${sourcePath} to ${targetPath}`)
 
         const dirName = path.dirname(targetPath)
+        const lstat = await fs.lstat(sourcePath)
 
         if (!await pathExists(dirName)) {
           if (this.verbose) console.log(`Path doesn't exists - create it: ${dirName}`)
@@ -193,7 +194,30 @@ class WatchedLibrary {
           await fs.mkdir(dirName, {recursive: true})
         }
 
-        await await fs.copyFile(sourcePath, targetPath)
+        if (lstat.isDirectory()) {
+          // FIXME: What about the same properties or the source dir?
+          await fs.mkdir(targetPath)
+        } else if (lstat.isFile()) {
+          await await fs.copyFile(sourcePath, targetPath)
+        }
+      } else if (type == "modified") {
+        if (this.verbose) console.log(`Copy ${sourcePath} to ${targetPath}`)
+
+        const dirName = path.dirname(targetPath)
+        const lstat = await fs.lstat(sourcePath)
+
+        if (!await pathExists(dirName)) {
+          if (this.verbose) console.log(`Path doesn't exists - create it: ${dirName}`)
+
+          await fs.mkdir(dirName, {recursive: true})
+        }
+
+        if (lstat.isDirectory()) {
+          // FIXME: What was changed? Should we sync something?
+        } else if (lstat.isFile()) {
+          // FIXME: We should only copy entire file, if the content was changed. Can we detect if the contents was changed? Maybe only props were changed?
+          await await fs.copyFile(sourcePath, targetPath)
+        }
       } else if (type == "deleted") {
         if (this.verbose) console.log(`Path ${localPath} was deleted`)
 
@@ -206,13 +230,6 @@ class WatchedLibrary {
             await fs.rm(targetPath, {recursive: true})
           }
         }
-
-        /*
-        if (stats.isDirectory()) {
-          console.log(`Dir ${localPath} was deleted`)
-          // await fs.rm(targetPath, {recursive: true, force: true})
-        }
-        */
       }
     }
   }
