@@ -1,31 +1,48 @@
 import fs from "fs/promises"
 import InotifyImport from "inotify-remastered-plus"
+import path from "path"
 
 const {Inotify} = InotifyImport
 
+const pathExists = async (fileOrDirPath) => {
+  try {
+    await fs.access(fileOrDirPath)
+
+    return true
+  } catch (error) {
+    return false
+  }
+}
+
 class DirectoryListener {
   constructor(args) {
-    const {path, inotify} = args
+    const {callback, sourcePath, ignore, inotify, localPath, verbose, watchFor, ...restProps} = args
+    const restPropsKeys = Object.keys(restProps)
+
+    if (restPropsKeys.length > 0) {
+      throw new Error(`${restPropsKeys} are not supported`)
+    }
 
     this.args = args
-    this.localPath = args.localPath
-    this.path = path
+    this.localPath = localPath
+    this.sourcePath = sourcePath
     this.subDirsListeners = {}
     this.tempData = {}
+    this.verbose = verbose
     this.watch = inotify.addWatch({
-      path,
-      watch_for: args.watchFor || Inotify.IN_ALL_EVENTS,
+      path: sourcePath,
+      watch_for: watchFor || Inotify.IN_ALL_EVENTS,
       callback: this.callback
     })
   }
 
   async watchSubDirs() {
-    console.log(`Watching ${this.path}`)
+    if (this.verbose) console.log(`Watching ${this.sourcePath}`)
 
-    const files = await fs.readdir(this.path, {withFileTypes: true})
+    const files = await fs.readdir(this.sourcePath, {withFileTypes: true})
 
     for (const file of files) {
-      const fullPath = `${this.path}/${file.name}`
+      const fullPath = `${this.sourcePath}/${file.name}`
       let localPath
 
       if (this.localPath == "") {
@@ -38,14 +55,14 @@ class DirectoryListener {
         let shouldIgnore = false
 
         if (this.args.ignore) {
-          shouldIgnore = this.args.ignore({file, localPath, path: fullPath})
+          shouldIgnore = this.args.ignore({file, localPath, fullPath})
         }
 
         if (!shouldIgnore) {
           const directoryListenerArgs = {...this.args}
 
           directoryListenerArgs.localPath = localPath
-          directoryListenerArgs.path = `${this.path}/${file.name}`
+          directoryListenerArgs.sourcePath = `${this.sourcePath}/${file.name}`
 
           const directoryListener = new DirectoryListener(directoryListenerArgs)
 
@@ -59,18 +76,18 @@ class DirectoryListener {
 
   callback = (event) => {
     const {mask, name} = event
-    const path = `${this.path}/${name}`
+    const sourcePath = `${this.sourcePath}/${name}`
     const localPath = `${this.localPath}/${event.name}`
 
     if (mask & Inotify.IN_MODIFY) {
-      console.log(`${localPath} modified`, {event})
+      console.log(`${localPath} modified`)
 
       this.args.callback({
         directoryListener: this,
         event,
         localPath,
         name,
-        path,
+        sourcePath,
         type: "modified"
       })
     } else if (mask & Inotify.IN_CLOSE_WRITE) {
@@ -81,7 +98,7 @@ class DirectoryListener {
         event,
         localPath,
         name,
-        path,
+        sourcePath,
         type: "created"
       })
     } else if (mask & Inotify.IN_DELETE) {
@@ -90,7 +107,7 @@ class DirectoryListener {
         event,
         localPath,
         name,
-        path,
+        sourcePath,
         type: "deleted"
       })
     } else if (mask & Inotify.IN_MOVED_FROM) {
@@ -104,7 +121,7 @@ class DirectoryListener {
           localPath,
           name,
           pathFrom: this.tempData.movedFrom,
-          path,
+          sourcePath,
           type: "moved"
         })
 
@@ -117,7 +134,7 @@ class DirectoryListener {
         event,
         localPath,
         name,
-        path,
+        sourcePath,
         type: "unknown"
       })
     }
@@ -125,14 +142,22 @@ class DirectoryListener {
 }
 
 class WatchedLibrary {
-  constructor(library, inotify) {
+  constructor({library, inotify, verbose, ...restProps}) {
+    const restPropsKeys = Object.keys(restProps)
+
+    if (restPropsKeys.length) {
+      throw new Error(`Unknown props: ${restPropsKeys}`)
+    }
+
     this.library = library
+    this.verbose = verbose
     this.liraryListener = new DirectoryListener({
       callback: this.callback,
       localPath: "",
-      path: library.source,
       ignore: this.shouldIgnore,
       inotify,
+      sourcePath: library.source,
+      verbose,
       watchFor: Inotify.IN_MODIFY | Inotify.IN_CREATE | Inotify.IN_DELETE | Inotify.IN_MOVED_FROM | Inotify.IN_MOVED_TO
     })
   }
@@ -151,19 +176,36 @@ class WatchedLibrary {
     return false
   }
 
-  callback = async ({directoryListener, event, localPath, name, path, type}) => {
+  callback = async ({directoryListener, event, localPath, name, sourcePath, type}) => {
     for (const destination of this.library.destinations) {
       const targetPath = `${destination}/${localPath}`
 
-      console.log(`${localPath} ${type}`)
+      if (this.verbose) console.log(`${localPath} ${type}`)
 
       if (type == "created" || type == "modified") {
-        console.log(`Copy ${path} to ${targetPath}`)
+        if (this.verbose) console.log(`Copy ${sourcePath} to ${targetPath}`)
 
-        await await fs.copyFile(path, targetPath)
+        const dirName = path.dirname(targetPath)
+
+        if (!await pathExists(dirName)) {
+          if (this.verbose) console.log(`Path doesn't exists - create it: ${dirName}`)
+
+          await fs.mkdir(dirName, {recursive: true})
+        }
+
+        await await fs.copyFile(sourcePath, targetPath)
       } else if (type == "deleted") {
-        console.log(`File ${localPath} was deleted`)
-        await fs.unlink(targetPath)
+        if (this.verbose) console.log(`Path ${localPath} was deleted`)
+
+        if (await pathExists(targetPath)) {
+          const lstat = await fs.lstat(targetPath)
+
+          if (lstat.isFile() || lstat.isSymbolicLink()) {
+            await fs.unlink(targetPath)
+          } else if (lstat.isDirectory()) {
+            await fs.rm(targetPath, {recursive: true})
+          }
+        }
 
         /*
         if (stats.isDirectory()) {
@@ -177,20 +219,21 @@ class WatchedLibrary {
 }
 
 class LibrariesWatcher {
-  constructor({libraries, ...restProps}) {
+  constructor({libraries, verbose, ...restProps}) {
     const restPropsKeys = Object.keys(restProps)
 
     if (restPropsKeys.length > 0) throw new Error(`Unknown properties: ${restPropsKeys}`)
     if (!libraries || !Array.isArray(libraries)) throw new Error(`libraries must be an array`)
 
     this.libraries = libraries
+    this.verbose = verbose
     this.watchedLibraries = []
     this.inotify = new Inotify()
   }
 
   async watch() {
     for (const library of this.libraries) {
-      const watchedLibrary = new WatchedLibrary(library, this.inotify)
+      const watchedLibrary = new WatchedLibrary({library, inotify: this.inotify, verbose: this.verbose})
 
       await watchedLibrary.watch()
 
