@@ -1,3 +1,4 @@
+import {Dirent} from "fs"
 import fs from "fs/promises"
 import InotifyImport from "inotify-remastered-plus"
 import path from "path"
@@ -24,6 +25,7 @@ class DirectoryListener {
     }
 
     this.args = args
+    this.inotify = inotify
     this.localPath = localPath
     this.sourcePath = sourcePath
     this.subDirsListeners = {}
@@ -34,6 +36,19 @@ class DirectoryListener {
       watch_for: watchFor || Inotify.IN_ALL_EVENTS,
       callback: this.callback
     })
+    this.active = true
+  }
+
+  stopListener() {
+    if (this.verbose) console.log(`Stop listener for ${this.localPath}`)
+    if (!this.active) throw new Error(`Listener wasn't active for ${this.localPath}`)
+
+    if (!this.watch) {
+      throw new Error(`No watch for ${this.sourcePath}`)
+    }
+
+    this.inotify.removeWatch(this.watch)
+    this.active = false
   }
 
   async watchSubDirs() {
@@ -52,32 +67,75 @@ class DirectoryListener {
       }
 
       if (file.isDirectory()) {
-        let shouldIgnore = false
-
-        if (this.args.ignore) {
-          shouldIgnore = this.args.ignore({file, localPath, fullPath})
-        }
-
-        if (!shouldIgnore) {
-          const directoryListenerArgs = {...this.args}
-
-          directoryListenerArgs.localPath = localPath
-          directoryListenerArgs.sourcePath = `${this.sourcePath}/${file.name}`
-
-          const directoryListener = new DirectoryListener(directoryListenerArgs)
-
-          await directoryListener.watchSubDirs()
-
-          this.subDirsListeners[fullPath] = directoryListener
-        }
+        await this.watchDir({file, localPath, fullPath})
       }
     }
   }
 
-  callback = (event) => {
+  isWatchingFullPath(fullPath) {
+    if (fullPath in this.subDirsListeners) {
+      return true
+    }
+
+    return false
+  }
+
+  async watchDir({file, localPath, fullPath}) {
+    let shouldIgnore = false
+
+    if (this.args.ignore) {
+      shouldIgnore = this.args.ignore({file, localPath, fullPath})
+    }
+
+    if (shouldIgnore) {
+      if (this.verbose) console.log(`Ignoring ${localPath}`)
+    } else {
+      if (this.isWatchingFullPath(fullPath)) throw new Error(`Already watching ${fullPath}`)
+
+      const directoryListenerArgs = {...this.args}
+
+      directoryListenerArgs.localPath = localPath
+      directoryListenerArgs.sourcePath = `${this.sourcePath}/${file.name}`
+
+      const directoryListener = new DirectoryListener(directoryListenerArgs)
+
+      await directoryListener.watchSubDirs()
+
+      this.subDirsListeners[fullPath] = directoryListener
+    }
+  }
+
+  async getDirent(path, fileName) {
+    const files = await fs.readdir(path, {withFileTypes: true})
+    const found = []
+
+    for (const file of files) {
+      found.push(file.name)
+
+      if (file.name == fileName) {
+        return file
+      }
+    }
+
+    throw new Error(`Couldn't find ${fileName} in ${path}: ${found.join(", ")}`)
+  }
+
+  callback = async (event) => {
     const {mask, name} = event
+
+    if (!name) return // Unknown event
+
     const sourcePath = `${this.sourcePath}/${name}`
-    const localPath = `${this.localPath}/${event.name}`
+    const localPath = `${this.localPath}/${name}`
+    let isDirectory
+
+    if (mask & Inotify.IN_ISDIR) {
+      isDirectory = true
+    } else {
+      isDirectory = false
+    }
+
+    if (this.verbose) console.log("Callback", {name, localPath, isDirectory, event})
 
     if (mask & Inotify.IN_MODIFY) {
       console.log(`${localPath} modified`)
@@ -93,6 +151,14 @@ class DirectoryListener {
     } else if (mask & Inotify.IN_CLOSE_WRITE) {
       console.log(`${localPath} closed for writing`)
     } else if (mask & Inotify.IN_CREATE) {
+      if (isDirectory) {
+        const file = await this.getDirent(path.dirname(sourcePath), name)
+
+        if (!this.isWatchingFullPath(sourcePath)) {
+          this.watchDir({file, localPath, fullPath: sourcePath})
+        }
+      }
+
       this.args.callback({
         directoryListener: this,
         event,
@@ -102,6 +168,18 @@ class DirectoryListener {
         type: "created"
       })
     } else if (mask & Inotify.IN_DELETE) {
+      if (isDirectory) {
+        const directoryListener = this.subDirsListeners[sourcePath]
+
+        try {
+          directoryListener.stopListener()
+
+          delete this.subDirsListeners[fullPath]
+        } catch (e) {
+          console.error(`Couldn't stop listener for ${sourcePath}: ${e.message}`)
+        }
+      }
+
       this.args.callback({
         directoryListener: this,
         event,
@@ -176,11 +254,9 @@ class WatchedLibrary {
     return false
   }
 
-  callback = async ({directoryListener, event, localPath, name, sourcePath, type}) => {
+  callback = async ({directoryListener, event, localPath, name, sourcePath, type, ...restArgs}) => {
     for (const destination of this.library.destinations) {
       const targetPath = `${destination}/${localPath}`
-
-      if (this.verbose) console.log(`${localPath} ${type}`)
 
       if (type == "created") {
         if (this.verbose) console.log(`Copy ${sourcePath} to ${targetPath}`)
