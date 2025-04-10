@@ -135,8 +135,6 @@ class DirectoryListener {
       isDirectory = false
     }
 
-    if (this.verbose) console.log("Callback", {name, localPath, isDirectory, event})
-
     if (mask & Inotify.IN_MODIFY) {
       console.log(`${localPath} modified`)
 
