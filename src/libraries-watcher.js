@@ -271,10 +271,13 @@ class WatchedLibrary {
         }
 
         if (lstat.isDirectory()) {
-          // FIXME: What about the same properties or the source dir?
-          await fs.mkdir(targetPath)
+          if (!await pathExists(targetPath)) {
+            await fs.mkdir(targetPath, {mode: lstat.mode})
+            await fs.chown(targetPath, lstat.uid, lstat.gid)
+            await fs.chmod(targetPath, lstat.mode)
+          }
         } else if (lstat.isFile()) {
-          await await fs.copyFile(sourcePath, targetPath)
+          await fs.copyFile(sourcePath, targetPath, fs.constants.COPYFILE_FICLONE)
         }
       } else if (type == "modified") {
         if (this.verbose) console.log(`Copy ${sourcePath} to ${targetPath}`)
