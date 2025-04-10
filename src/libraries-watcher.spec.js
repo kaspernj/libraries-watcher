@@ -1,4 +1,4 @@
-import LibrariesWatcher from "./libraries-watcher"
+import LibrariesWatcher from "./libraries-watcher.js"
 
 describe("libraries-watcher", () => {
   it("works", () => {
