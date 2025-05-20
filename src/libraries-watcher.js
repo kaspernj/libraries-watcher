@@ -1,4 +1,3 @@
-import {Dirent} from "fs"
 import fs from "fs/promises"
 import InotifyImport from "inotify-remastered-plus"
 import path from "path"
@@ -40,8 +39,8 @@ class DirectoryListener {
   }
 
   stopListener() {
-    if (this.verbose) console.log(`Stop listener for ${this.localPath}`)
-    if (!this.active) throw new Error(`Listener wasn't active for ${this.localPath}`)
+    if (this.verbose) console.log(`Stop listener for ${this.sourcePath}`)
+    if (!this.active) throw new Error(`Listener wasn't active for ${this.sourcePath}`)
 
     if (!this.watch) {
       throw new Error(`No watch for ${this.sourcePath}`)
@@ -49,6 +48,12 @@ class DirectoryListener {
 
     this.inotify.removeWatch(this.watch)
     this.active = false
+
+    for (const subDirListenerPath in this.subDirsListeners) {
+      const subDirListener = this.subDirsListeners[subDirListenerPath]
+
+      subDirListener.stopListener()
+    }
   }
 
   async watchSubDirs() {
@@ -136,7 +141,7 @@ class DirectoryListener {
     }
 
     if (mask & Inotify.IN_MODIFY) {
-      console.log(`${localPath} modified`)
+      if (this.verbose) console.log(`${localPath} modified`)
 
       this.args.callback({
         directoryListener: this,
@@ -147,7 +152,7 @@ class DirectoryListener {
         type: "modified"
       })
     } else if (mask & Inotify.IN_CLOSE_WRITE) {
-      console.log(`${localPath} closed for writing`)
+      if (this.verbose) console.log(`${localPath} closed for writing`)
     } else if (mask & Inotify.IN_CREATE) {
       if (isDirectory) {
         const file = await this.getDirent(path.dirname(sourcePath), name)
@@ -242,6 +247,10 @@ class WatchedLibrary {
     await this.liraryListener.watchSubDirs()
   }
 
+  stopWatch() {
+    this.liraryListener.stopListener()
+  }
+
   shouldIgnore = ({file}) => {
     const {name} = file
 
@@ -269,10 +278,13 @@ class WatchedLibrary {
         }
 
         if (lstat.isDirectory()) {
-          // FIXME: What about the same properties or the source dir?
-          await fs.mkdir(targetPath)
+          if (!await pathExists(targetPath)) {
+            await fs.mkdir(targetPath, {mode: lstat.mode})
+            await fs.chown(targetPath, lstat.uid, lstat.gid)
+            await fs.chmod(targetPath, lstat.mode)
+          }
         } else if (lstat.isFile()) {
-          await await fs.copyFile(sourcePath, targetPath)
+          await fs.copyFile(sourcePath, targetPath, fs.constants.COPYFILE_FICLONE)
         }
       } else if (type == "modified") {
         if (this.verbose) console.log(`Copy ${sourcePath} to ${targetPath}`)
@@ -329,6 +341,12 @@ class LibrariesWatcher {
       await watchedLibrary.watch()
 
       this.watchedLibraries.push(watchedLibrary)
+    }
+  }
+
+  async stopWatch() {
+    for (const watchedLibrary of this.watchedLibraries) {
+      watchedLibrary.stopWatch()
     }
   }
 }

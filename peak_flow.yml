@@ -1,0 +1,5 @@
+before_script:
+  - mkdir -p spec/support/test-dir/source spec/support/test-dir/target
+  - npm install
+script:
+  - npm test
