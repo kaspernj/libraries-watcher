@@ -58,29 +58,33 @@ describe("libraries-watcher", () => {
   it("works", async () => {
     const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
 
-    await librariesWatcher.watch()
+    try {
+      await librariesWatcher.watch()
 
-    const sourcePath = `${testDirSource}/test.txt`
-    const targetPath = `${testDirTarget}/test.txt`
+      const sourcePath = `${testDirSource}/test.txt`
+      const targetPath = `${testDirTarget}/test.txt`
 
-    let sourceTestFileExists = await fileExists(sourcePath)
-    let targetTestFileExists = await fileExists(targetPath)
+      let sourceTestFileExists = await fileExists(sourcePath)
+      let targetTestFileExists = await fileExists(targetPath)
 
-    expect(sourceTestFileExists).toBe(false)
-    expect(targetTestFileExists).toBe(false)
+      expect(sourceTestFileExists).toBe(false)
+      expect(targetTestFileExists).toBe(false)
 
-    await fs.writeFile(`${testDirSource}/test.txt`, "Test")
+      await fs.writeFile(`${testDirSource}/test.txt`, "Test")
 
-    let exists = false
+      let exists = false
 
-    while (!exists) {
-      exists = await fileExists(targetPath)
+      while (!exists) {
+        exists = await fileExists(targetPath)
+      }
+
+      sourceTestFileExists = await fileExists(sourcePath)
+      targetTestFileExists = await fileExists(targetPath)
+
+      expect(sourceTestFileExists).toBe(true)
+      expect(targetTestFileExists).toBe(true)
+    } finally {
+      await librariesWatcher.stopWatch()
     }
-
-    sourceTestFileExists = await fileExists(sourcePath)
-    targetTestFileExists = await fileExists(targetPath)
-
-    expect(sourceTestFileExists).toBe(true)
-    expect(targetTestFileExists).toBe(true)
   })
 })

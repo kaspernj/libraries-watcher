@@ -1,4 +1,3 @@
-import {Dirent} from "fs"
 import fs from "fs/promises"
 import InotifyImport from "inotify-remastered-plus"
 import path from "path"
@@ -40,8 +39,8 @@ class DirectoryListener {
   }
 
   stopListener() {
-    if (this.verbose) console.log(`Stop listener for ${this.localPath}`)
-    if (!this.active) throw new Error(`Listener wasn't active for ${this.localPath}`)
+    if (this.verbose) console.log(`Stop listener for ${this.sourcePath}`)
+    if (!this.active) throw new Error(`Listener wasn't active for ${this.sourcePath}`)
 
     if (!this.watch) {
       throw new Error(`No watch for ${this.sourcePath}`)
@@ -49,6 +48,12 @@ class DirectoryListener {
 
     this.inotify.removeWatch(this.watch)
     this.active = false
+
+    for (const subDirListenerPath in this.subDirsListeners) {
+      const subDirListener = this.subDirsListeners[subDirListenerPath]
+
+      subDirListener.stopListener()
+    }
   }
 
   async watchSubDirs() {
@@ -242,6 +247,10 @@ class WatchedLibrary {
     await this.liraryListener.watchSubDirs()
   }
 
+  stopWatch() {
+    this.liraryListener.stopListener()
+  }
+
   shouldIgnore = ({file}) => {
     const {name} = file
 
@@ -332,6 +341,12 @@ class LibrariesWatcher {
       await watchedLibrary.watch()
 
       this.watchedLibraries.push(watchedLibrary)
+    }
+  }
+
+  async stopWatch() {
+    for (const watchedLibrary of this.watchedLibraries) {
+      watchedLibrary.stopWatch()
     }
   }
 }
