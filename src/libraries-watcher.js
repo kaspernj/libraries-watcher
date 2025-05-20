@@ -136,7 +136,7 @@ class DirectoryListener {
     }
 
     if (mask & Inotify.IN_MODIFY) {
-      console.log(`${localPath} modified`)
+      if (this.verbose) console.log(`${localPath} modified`)
 
       this.args.callback({
         directoryListener: this,
@@ -147,7 +147,7 @@ class DirectoryListener {
         type: "modified"
       })
     } else if (mask & Inotify.IN_CLOSE_WRITE) {
-      console.log(`${localPath} closed for writing`)
+      if (this.verbose) console.log(`${localPath} closed for writing`)
     } else if (mask & Inotify.IN_CREATE) {
       if (isDirectory) {
         const file = await this.getDirent(path.dirname(sourcePath), name)
