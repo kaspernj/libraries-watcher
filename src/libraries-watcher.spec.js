@@ -2,7 +2,6 @@ import fs from "fs/promises"
 import LibrariesWatcher from "./libraries-watcher.js"
 import path from "path"
 import {fileURLToPath} from "url"
-import wait from "awaitery/src/wait.js"
 import waitFor from "awaitery/src/wait-for.js"
 
 const __filename = fileURLToPath(import.meta.url) // get the resolved path to the file
@@ -70,7 +69,7 @@ describe("libraries-watcher", () => {
     expect(targetTestFileExists).toBe(false)
   })
 
-  it("syncs creation of files", async () => {
+  it("syncs creation of files in the root", async () => {
     const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
 
     try {
@@ -93,7 +92,33 @@ describe("libraries-watcher", () => {
     }
   })
 
-  it("syncs deletion of files", async () => {
+  it("syncs creation of files in sub-folders", async () => {
+    const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
+
+    await fs.mkdir(`${testDirSource}/testdir1/testdir2`, {recursive: true})
+    await fs.mkdir(`${testDirTarget}/testdir1/testdir2`, {recursive: true})
+
+    try {
+      await librariesWatcher.watch()
+      await fs.writeFile(`${testDirSource}/testdir1/testdir2/testfile`, "Test")
+
+      await waitFor(async () => {
+        if (!await fileExists(`${testDirSource}/testdir1/testdir2/testfile`)) throw new Error("Target file doesnt exist")
+      })
+
+      await waitFor(async () => {
+        const fileContent = await fs.readFile(`${testDirTarget}/testdir1/testdir2/testfile`, "utf8")
+
+        if (fileContent != "Test") {
+          throw new Error(`Unexpected file content: ${fileContent}`)
+        }
+      })
+    } finally {
+      await librariesWatcher.stopWatch()
+    }
+  })
+
+  it("syncs deletion of files in the root", async () => {
     const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
 
     await fs.writeFile(sourceFilePath, "Test")
@@ -105,6 +130,74 @@ describe("libraries-watcher", () => {
 
       await waitFor(async () => {
         if (await fileExists(targetFilePath)) throw new Error("Target file exists")
+      })
+    } finally {
+      await librariesWatcher.stopWatch()
+    }
+  })
+
+  it("syncs deletion of files in sub folders", async () => {
+    const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
+
+    await fs.mkdir(`${testDirSource}/testdir1/testdir2`, {recursive: true})
+    await fs.mkdir(`${testDirTarget}/testdir1/testdir2`, {recursive: true})
+
+    await fs.writeFile(`${testDirSource}/testdir1/testdir2/Testfile`, "Test")
+    await fs.writeFile(`${testDirTarget}/testdir1/testdir2/Testfile`, "Test")
+
+    try {
+      await librariesWatcher.watch()
+      await fs.unlink(`${testDirSource}/testdir1/testdir2/Testfile`)
+
+      await waitFor(async () => {
+        if (await fileExists(`${testDirTarget}/testdir1/testdir2/Testfile`)) throw new Error("Target file exists")
+      })
+    } finally {
+      await librariesWatcher.stopWatch()
+    }
+  })
+
+  it("syncs movals of files in sub folders", async () => {
+    const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
+
+    await fs.mkdir(`${testDirSource}/testdir1/testdir2`, {recursive: true})
+    await fs.mkdir(`${testDirTarget}/testdir1/testdir2`, {recursive: true})
+
+    await fs.writeFile(`${testDirSource}/testdir1/testdir2/Testfile`, "Test")
+    await fs.writeFile(`${testDirTarget}/testdir1/testdir2/Testfile`, "Test")
+
+    try {
+      await librariesWatcher.watch()
+      await fs.rename(`${testDirSource}/testdir1/testdir2/Testfile`, `${testDirSource}/testdir1/Testfile2`)
+
+      await waitFor(async () => {
+        if (await fileExists(`${testDirTarget}/testdir1/testdir2/Testfile`)) throw new Error("Move from path exists")
+        if (!await fileExists(`${testDirTarget}/testdir1/Testfile2`)) throw new Error("Move to path doesnt exist")
+      })
+    } finally {
+      await librariesWatcher.stopWatch()
+    }
+  })
+
+  it("syncs changes to files in sub folders", async () => {
+    const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
+
+    await fs.mkdir(`${testDirSource}/testdir1/testdir2`, {recursive: true})
+    await fs.mkdir(`${testDirTarget}/testdir1/testdir2`, {recursive: true})
+
+    await fs.writeFile(`${testDirSource}/testdir1/testdir2/Testfile`, "Test")
+    await fs.writeFile(`${testDirTarget}/testdir1/testdir2/Testfile`, "Test")
+
+    try {
+      await librariesWatcher.watch()
+      await fs.writeFile(`${testDirSource}/testdir1/testdir2/Testfile`, "Test change")
+
+      await waitFor(async () => {
+        const fileContent = await fs.readFile(`${testDirTarget}/testdir1/testdir2/Testfile`, "utf8")
+
+        if (fileContent != "Test change") {
+          throw new Error(`Unexpected file content: ${fileContent}`)
+        }
       })
     } finally {
       await librariesWatcher.stopWatch()

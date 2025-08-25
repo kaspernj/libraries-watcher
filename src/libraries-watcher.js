@@ -115,65 +115,8 @@ class DirectoryListener {
       isDirectory = await stats.isDirectory()
     }
 
-    if (event == "change") {
-      if (this.verbose) console.log(`${localPath} modified`)
-
-      this.args.callback({
-        directoryListener: this,
-        event,
-        localPath,
-        name,
-        sourcePath,
-        type: "modified"
-      })
-    } else if (event == "mask & Inotify.IN_CLOSE_WRITE") {
-      if (this.verbose) console.log(`${localPath} closed for writing`)
-    } else if (event == "add" || event == "addDir") {
-      this.args.callback({
-        directoryListener: this,
-        event,
-        localPath,
-        name,
-        sourcePath,
-        type: "created"
-      })
-    } else if (event == "unlink" || event == "unlinkDir") {
-      this.args.callback({
-        directoryListener: this,
-        event,
-        localPath,
-        name,
-        sourcePath,
-        type: "deleted"
-      })
-    } else if (event == "mask & Inotify.IN_MOVED_FROM") {
-      this.tempData.cookie = event.cookie
-      this.tempData.movedFrom = event.name
-    } else if (event == "mask & Inotify.IN_MOVED_TO") {
-      if (this.tempData.movedFrom && this.tempData.cookie === event.cookie) {
-        this.args.callback({
-          directoryListener: this,
-          event,
-          localPath,
-          name,
-          pathFrom: this.tempData.movedFrom,
-          sourcePath,
-          type: "moved"
-        })
-
-        delete this.tempData.cookie
-        delete this.tempData.movedFrom
-      }
-    } else {
-      this.args.callback({
-        directoryListener: this,
-        event,
-        localPath,
-        name,
-        sourcePath,
-        type: "unknown"
-      })
-    }
+    if (this.verbose) console.log(`${localPath} ${event}`)
+    this.args.callback({event, isDirectory, localPath, sourcePath})
   }
 }
 
@@ -213,15 +156,42 @@ class WatchedLibrary {
     return false
   }
 
-  callback = async ({directoryListener, event, localPath, name, sourcePath, type, ...restArgs}) => {
+  callback = async ({event, isDirectory, localPath, sourcePath}) => {
     for (const destination of this.library.destinations) {
       const targetPath = `${destination}/${localPath}`
 
-      if (type == "created") {
+      if (event == "add") {
         if (this.verbose) console.log(`Copy ${sourcePath} to ${targetPath}`)
 
         const dirName = path.dirname(targetPath)
-        const lstat = await fs.lstat(sourcePath)
+
+        if (!await pathExists(dirName)) {
+          if (this.verbose) console.log(`Path doesn't exists - create it: ${dirName}`)
+          await fs.mkdir(dirName, {recursive: true})
+        }
+
+        await fs.copyFile(sourcePath, targetPath, fs.constants.COPYFILE_FICLONE)
+      } else if (event == "addDir") {
+        if (this.verbose) console.log(`Create dir ${targetPath}`)
+
+        const dirName = path.dirname(targetPath)
+
+        if (!await pathExists(dirName)) {
+          if (this.verbose) console.log(`Path doesn't exists - create it: ${dirName}`)
+          await fs.mkdir(dirName, {recursive: true})
+        }
+
+        if (!await pathExists(targetPath)) {
+          const lstat = await fs.lstat(sourcePath)
+
+          await fs.mkdir(targetPath, {mode: lstat.mode})
+          await fs.chown(targetPath, lstat.uid, lstat.gid)
+          await fs.chmod(targetPath, lstat.mode)
+        }
+      } else if (event == "change") {
+        if (this.verbose) console.log(`Copy ${sourcePath} to ${targetPath}`)
+
+        const dirName = path.dirname(targetPath)
 
         if (!await pathExists(dirName)) {
           if (this.verbose) console.log(`Path doesn't exists - create it: ${dirName}`)
@@ -229,34 +199,13 @@ class WatchedLibrary {
           await fs.mkdir(dirName, {recursive: true})
         }
 
-        if (lstat.isDirectory()) {
-          if (!await pathExists(targetPath)) {
-            await fs.mkdir(targetPath, {mode: lstat.mode})
-            await fs.chown(targetPath, lstat.uid, lstat.gid)
-            await fs.chmod(targetPath, lstat.mode)
-          }
-        } else if (lstat.isFile()) {
-          await fs.copyFile(sourcePath, targetPath, fs.constants.COPYFILE_FICLONE)
-        }
-      } else if (type == "modified") {
-        if (this.verbose) console.log(`Copy ${sourcePath} to ${targetPath}`)
-
-        const dirName = path.dirname(targetPath)
-        const lstat = await fs.lstat(sourcePath)
-
-        if (!await pathExists(dirName)) {
-          if (this.verbose) console.log(`Path doesn't exists - create it: ${dirName}`)
-
-          await fs.mkdir(dirName, {recursive: true})
-        }
-
-        if (lstat.isDirectory()) {
+        if (isDirectory) {
           // FIXME: What was changed? Should we sync something?
-        } else if (lstat.isFile()) {
+        } else if (!isDirectory) {
           // FIXME: We should only copy entire file, if the content was changed. Can we detect if the contents was changed? Maybe only props were changed?
           await await fs.copyFile(sourcePath, targetPath, fs.constants.COPYFILE_FICLONE)
         }
-      } else if (type == "deleted") {
+      } else if (event == "unlink") {
         if (this.verbose) console.log(`Path ${localPath} was deleted`)
 
         if (await pathExists(targetPath)) {
@@ -264,10 +213,16 @@ class WatchedLibrary {
 
           if (lstat.isFile() || lstat.isSymbolicLink()) {
             await fs.unlink(targetPath)
-          } else if (lstat.isDirectory()) {
-            await fs.rm(targetPath, {recursive: true})
           }
         }
+      } else if (event == "unlinkDir") {
+        if (this.verbose) console.log(`Path ${localPath} was deleted`)
+
+        if (await pathExists(targetPath)) {
+          await fs.rm(targetPath, {recursive: true})
+        }
+      } else {
+        if (this.verbose) console.log(`${localPath} ${event} unknown!`)
       }
     }
   }
