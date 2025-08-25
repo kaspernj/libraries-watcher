@@ -31,6 +31,7 @@
     "inotify-remastered-plus": "^2.5.0"
   },
   "devDependencies": {
+    "awaitery": "^1.0.1",
     "jasmine": "^5.6.0"
   }
 }

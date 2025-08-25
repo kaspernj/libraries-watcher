@@ -2,11 +2,16 @@ import fs from "fs/promises"
 import LibrariesWatcher from "./libraries-watcher.js"
 import path from "path"
 import {fileURLToPath} from "url"
+import waitFor from "awaitery/src/wait-for.js"
 
 const __filename = fileURLToPath(import.meta.url) // get the resolved path to the file
 const __dirname = path.dirname(__filename) // get the name of the directory
 const testDirSource = await fs.realpath(`${__dirname}/../spec/support/test-dir/source`)
 const testDirTarget = await fs.realpath(`${__dirname}/../spec/support/test-dir/target`)
+const sourceFilePath = `${testDirSource}/test.txt`
+const targetFilePath = `${testDirTarget}/test.txt`
+const sourceDirPath = `${testDirSource}/testdir`
+const targetDirPath = `${testDirTarget}/testdir`
 const config = [
   {
     name: "test",
@@ -24,6 +29,7 @@ const cleanDir = async (dir) => {
 
     if (lstat.isDirectory()) {
       await cleanDir(fullPath)
+      await fs.rm(fullPath, {recursive: true})
     } else {
       await fs.unlink(fullPath)
     }
@@ -55,34 +61,122 @@ describe("libraries-watcher", () => {
     await cleanDir(testDirTarget)
   })
 
-  it("works", async () => {
+  it("starts without the test files", async () => {
+    let sourceTestFileExists = await fileExists(sourceFilePath)
+    let targetTestFileExists = await fileExists(targetFilePath)
+
+    expect(sourceTestFileExists).toBe(false)
+    expect(targetTestFileExists).toBe(false)
+  })
+
+  it("syncs creation of files", async () => {
+    const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
+
+    try {
+      await librariesWatcher.watch()
+      await fs.writeFile(sourceFilePath, "Test")
+
+      await waitFor(async () => {
+        if (!await fileExists(targetFilePath)) throw new Error("Target file doesnt exist")
+      })
+    } finally {
+      await librariesWatcher.stopWatch()
+    }
+  })
+
+  it("syncs deletion of files", async () => {
+    const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
+
+    await fs.writeFile(sourceFilePath, "Test")
+    await fs.writeFile(targetFilePath, "Test")
+
+    try {
+      await librariesWatcher.watch()
+      await fs.unlink(sourceFilePath)
+
+      await waitFor(async () => {
+        if (await fileExists(targetFilePath)) throw new Error("Target file exists")
+      })
+    } finally {
+      await librariesWatcher.stopWatch()
+    }
+  })
+
+  it("syncs creation of dirs", async () => {
+    const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
+
+    try {
+      await librariesWatcher.watch()
+      await fs.mkdir(sourceDirPath)
+
+      await waitFor(async () => {
+        if (!await fileExists(targetDirPath)) throw new Error("Target file doesnt exist")
+      })
+    } finally {
+      await librariesWatcher.stopWatch()
+    }
+  })
+
+  it("syncs deletion of dirs", async () => {
+    const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
+
+    await fs.mkdir(sourceDirPath)
+
+    try {
+      await librariesWatcher.watch()
+      await fs.rm(sourceDirPath, {recursive: true})
+
+      await waitFor(async () => {
+        if (await fileExists(targetDirPath)) throw new Error("Target file exists")
+      })
+    } finally {
+      await librariesWatcher.stopWatch()
+    }
+  })
+
+  it("syncs recursive creation and deletion", async () => {
     const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
 
     try {
       await librariesWatcher.watch()
 
-      const sourcePath = `${testDirSource}/test.txt`
-      const targetPath = `${testDirTarget}/test.txt`
+      // Create dir
+      await fs.mkdir(`${testDirSource}/testdir1`)
 
-      let sourceTestFileExists = await fileExists(sourcePath)
-      let targetTestFileExists = await fileExists(targetPath)
+      await waitFor(async () => {
+        if (!await fileExists(`${testDirTarget}/testdir1`)) throw new Error("Target dir doesnt exist")
+      })
 
-      expect(sourceTestFileExists).toBe(false)
-      expect(targetTestFileExists).toBe(false)
+      // Create sub-dir
+      await fs.mkdir(`${testDirSource}/testdir1/testdir2`)
 
-      await fs.writeFile(`${testDirSource}/test.txt`, "Test")
+      await waitFor(async () => {
+        if (!await fileExists(`${testDirTarget}/testdir1/testdir2`)) throw new Error("Target dir doesnt exist")
+      })
 
-      let exists = false
+      // Create file in sub-dir
+      await fs.writeFile(`${testDirSource}/testdir1/testdir2/testfile`, "Test")
 
-      while (!exists) {
-        exists = await fileExists(targetPath)
-      }
+      await waitFor(async () => {
+        if (!await fileExists(`${testDirTarget}/testdir1/testdir2/testfile`)) throw new Error("Target file doesnt exist")
+      })
 
-      sourceTestFileExists = await fileExists(sourcePath)
-      targetTestFileExists = await fileExists(targetPath)
+      // Delete file in sub-dir
+      await fs.unlink(`${testDirSource}/testdir1/testdir2/testfile`)
 
-      expect(sourceTestFileExists).toBe(true)
-      expect(targetTestFileExists).toBe(true)
+      await waitFor(async () => {
+        if (await fileExists(`${testDirTarget}/testdir1/testdir2/testfile`)) throw new Error("Target file exists")
+      })
+
+      // Delete first dir recursively
+      await fs.rm(`${testDirSource}/testdir1`, {recursive: true})
+
+      await waitFor(async () => {
+        if (await fileExists(`${testDirTarget}/testdir1/testdir2`)) throw new Error("Target dir exists")
+      })
+      await waitFor(async () => {
+        if (await fileExists(`${testDirTarget}/testdir1`)) throw new Error("Target dir exists")
+      })
     } finally {
       await librariesWatcher.stopWatch()
     }
