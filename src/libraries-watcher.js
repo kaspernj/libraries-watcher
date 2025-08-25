@@ -176,11 +176,15 @@ class DirectoryListener {
 
         try {
           directoryListener.stopListener()
-
-          delete this.subDirsListeners[fullPath]
         } catch (e) {
-          console.error(`Couldn't stop listener for ${sourcePath}: ${e.message}`)
+          if (e.message == "Invalid argument") {
+            // This happens if the dir is deleted and we try and stop listening afterwards
+          } else {
+            console.error(`Couldn't stop listener for ${sourcePath}: ${e.message}`)
+          }
         }
+
+        delete this.subDirsListeners[sourcePath]
       }
 
       this.args.callback({
@@ -302,7 +306,7 @@ class WatchedLibrary {
           // FIXME: What was changed? Should we sync something?
         } else if (lstat.isFile()) {
           // FIXME: We should only copy entire file, if the content was changed. Can we detect if the contents was changed? Maybe only props were changed?
-          await await fs.copyFile(sourcePath, targetPath)
+          await await fs.copyFile(sourcePath, targetPath, fs.constants.COPYFILE_FICLONE)
         }
       } else if (type == "deleted") {
         if (this.verbose) console.log(`Path ${localPath} was deleted`)
