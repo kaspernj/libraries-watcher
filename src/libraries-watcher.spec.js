@@ -79,6 +79,14 @@ describe("libraries-watcher", () => {
       await waitFor(async () => {
         if (!await fileExists(targetFilePath)) throw new Error("Target file doesnt exist")
       })
+
+      await waitFor(async () => {
+        const fileContent = await fs.readFile(targetFilePath, "utf8")
+
+        if (fileContent != "Test") {
+          throw new Error(`Unexpected file content: ${fileContent}`)
+        }
+      })
     } finally {
       await librariesWatcher.stopWatch()
     }
@@ -155,10 +163,18 @@ describe("libraries-watcher", () => {
       })
 
       // Create file in sub-dir
-      await fs.writeFile(`${testDirSource}/testdir1/testdir2/testfile`, "Test")
+      await fs.writeFile(`${testDirSource}/testdir1/testdir2/testfile`, "Test recursive dirs and files")
 
       await waitFor(async () => {
         if (!await fileExists(`${testDirTarget}/testdir1/testdir2/testfile`)) throw new Error("Target file doesnt exist")
+      })
+
+      await waitFor(async () => {
+        const fileContent = await fs.readFile(`${testDirSource}/testdir1/testdir2/testfile`, "utf8")
+
+        if (fileContent != "Test recursive dirs and files") {
+          throw new Error(`Unexpected file content: ${fileContent}`)
+        }
       })
 
       // Delete file in sub-dir
