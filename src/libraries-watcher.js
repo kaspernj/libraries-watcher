@@ -1,8 +1,6 @@
+import chokidar from "chokidar"
 import fs from "fs/promises"
-import InotifyImport from "inotify-remastered-plus"
 import path from "path"
-
-const {Inotify} = InotifyImport
 
 const pathExists = async (fileOrDirPath) => {
   try {
@@ -16,7 +14,7 @@ const pathExists = async (fileOrDirPath) => {
 
 class DirectoryListener {
   constructor(args) {
-    const {callback, sourcePath, ignore, inotify, localPath, verbose, watchFor, ...restProps} = args
+    const {callback, sourcePath, ignore, localPath, verbose, watchFor, ...restProps} = args
     const restPropsKeys = Object.keys(restProps)
 
     if (restPropsKeys.length > 0) {
@@ -24,90 +22,65 @@ class DirectoryListener {
     }
 
     this.args = args
-    this.inotify = inotify
+    this.initial = true
     this.localPath = localPath
     this.sourcePath = sourcePath
-    this.subDirsListeners = {}
     this.tempData = {}
     this.verbose = verbose
-    this.watch = inotify.addWatch({
-      path: sourcePath,
-      watch_for: watchFor || Inotify.IN_ALL_EVENTS,
-      callback: this.callback
+  }
+
+  watch() {
+    return new Promise((resolve, reject) => {
+      this.watchResolve = resolve
+      this.watchReject = reject
+
+      this.watcher = chokidar.watch(this.sourcePath, {alwaysStat: true, ignored: this.ignored})
+      this.watcher.on("all", this.onChokidarEvent)
+      this.watcher.on("ready", this.onChokidarReady)
+      this.watcher.on("error", this.onChokidarError)
     })
+  }
+
+  onChokidarReady = () => {
+    this.initial = false
     this.active = true
+    this.watchResolve()
+    this.watchResolve = null
+    this.watchReject = null
   }
 
-  stopListener() {
-    if (this.verbose) console.log(`Stop listener for ${this.sourcePath}`)
-    if (!this.active) throw new Error(`Listener wasn't active for ${this.sourcePath}`)
-
-    if (!this.watch) {
-      throw new Error(`No watch for ${this.sourcePath}`)
-    }
-
-    this.inotify.removeWatch(this.watch)
-    this.active = false
-
-    for (const subDirListenerPath in this.subDirsListeners) {
-      const subDirListener = this.subDirsListeners[subDirListenerPath]
-
-      subDirListener.stopListener()
+  onChokidarError = (error) => {
+    if (this.watchReject) {
+      this.watchReject(error)
+    } else {
+      console.error(error)
     }
   }
 
-  async watchSubDirs() {
-    if (this.verbose) console.log(`Watching ${this.sourcePath}`)
+  ignored = (fullPath) => {
+    const fileName = fullPath.substring(this.sourcePath.length + 1, fullPath.length)
 
-    const files = await fs.readdir(this.sourcePath, {withFileTypes: true})
+    if (fileName == "") return false
 
-    for (const file of files) {
-      const fullPath = `${this.sourcePath}/${file.name}`
-      let localPath
+    const localPath = `${this.localPath}/${fileName}`
 
-      if (this.localPath == "") {
-        localPath = file.name
-      } else {
-        localPath = `${this.localPath}/${file.name}`
-      }
-
-      if (file.isDirectory()) {
-        await this.watchDir({file, localPath, fullPath})
-      }
-    }
-  }
-
-  isWatchingFullPath(fullPath) {
-    if (fullPath in this.subDirsListeners) {
-      return true
-    }
-
-    return false
-  }
-
-  async watchDir({file, localPath, fullPath}) {
     let shouldIgnore = false
 
     if (this.args.ignore) {
-      shouldIgnore = this.args.ignore({file, localPath, fullPath})
+      shouldIgnore = this.args.ignore({fileName, localPath, fullPath})
     }
 
-    if (shouldIgnore) {
-      if (this.verbose) console.log(`Ignoring ${localPath}`)
-    } else {
-      if (this.isWatchingFullPath(fullPath)) throw new Error(`Already watching ${fullPath}`)
+    return shouldIgnore
+  }
 
-      const directoryListenerArgs = {...this.args}
+  async stopListener() {
+    if (this.verbose) console.log(`Stop listener for ${this.sourcePath}`)
+    if (!this.active) throw new Error(`Listener wasn't active for ${this.sourcePath}`)
 
-      directoryListenerArgs.localPath = localPath
-      directoryListenerArgs.sourcePath = `${this.sourcePath}/${file.name}`
+    await this.watcher.close()
 
-      const directoryListener = new DirectoryListener(directoryListenerArgs)
-
-      await directoryListener.watchSubDirs()
-
-      this.subDirsListeners[fullPath] = directoryListener
-    }
+    this.active = false
+    delete this.watcher
   }
 
   async getDirent(path, fileName) {
@@ -125,22 +98,24 @@ class DirectoryListener {
     throw new Error(`Couldn't find ${fileName} in ${path}: ${found.join(", ")}`)
   }
 
-  callback = async (event) => {
-    const {mask, name} = event
+  onChokidarEvent = async (event, fullPath, stats) => {
+    if (this.initial) return
 
-    if (!name) return // Unknown event
-
+    const name = fullPath.substring(this.sourcePath.length + 1, fullPath.length)
     const sourcePath = `${this.sourcePath}/${name}`
     const localPath = `${this.localPath}/${name}`
+
     let isDirectory
 
-    if (mask & Inotify.IN_ISDIR) {
+    if (event == "add" || event == "unlink") {
+      isDirectory = false
+    } else if (event == "addDir" || event == "unlinkDir") {
       isDirectory = true
     } else {
-      isDirectory = false
+      isDirectory = await stats.isDirectory()
     }
 
-    if (mask & Inotify.IN_MODIFY) {
+    if (event == "change") {
       if (this.verbose) console.log(`${localPath} modified`)
 
       this.args.callback({
@@ -151,17 +126,9 @@ class DirectoryListener {
         sourcePath,
         type: "modified"
       })
-    } else if (mask & Inotify.IN_CLOSE_WRITE) {
+    } else if (event == "mask & Inotify.IN_CLOSE_WRITE") {
       if (this.verbose) console.log(`${localPath} closed for writing`)
-    } else if (mask & Inotify.IN_CREATE) {
-      if (isDirectory) {
-        const file = await this.getDirent(path.dirname(sourcePath), name)
-
-        if (!this.isWatchingFullPath(sourcePath)) {
-          this.watchDir({file, localPath, fullPath: sourcePath})
-        }
-      }
-
+    } else if (event == "add" || event == "addDir") {
       this.args.callback({
         directoryListener: this,
         event,
@@ -170,23 +137,7 @@ class DirectoryListener {
         sourcePath,
         type: "created"
       })
-    } else if (mask & Inotify.IN_DELETE) {
-      if (isDirectory) {
-        const directoryListener = this.subDirsListeners[sourcePath]
-
-        try {
-          directoryListener.stopListener()
-        } catch (e) {
-          if (e.message == "Invalid argument") {
-            // This happens if the dir is deleted and we try and stop listening afterwards
-          } else {
-            console.error(`Couldn't stop listener for ${sourcePath}: ${e.message}`)
-          }
-        }
-
-        delete this.subDirsListeners[sourcePath]
-      }
-
+    } else if (event == "unlink" || event == "unlinkDir") {
       this.args.callback({
         directoryListener: this,
         event,
@@ -195,10 +146,10 @@ class DirectoryListener {
         sourcePath,
         type: "deleted"
       })
-    } else if (mask & Inotify.IN_MOVED_FROM) {
+    } else if (event == "mask & Inotify.IN_MOVED_FROM") {
       this.tempData.cookie = event.cookie
       this.tempData.movedFrom = event.name
-    } else if (mask & Inotify.IN_MOVED_TO) {
+    } else if (event == "mask & Inotify.IN_MOVED_TO") {
       if (this.tempData.movedFrom && this.tempData.cookie === event.cookie) {
         this.args.callback({
           directoryListener: this,
@@ -227,7 +178,7 @@ class DirectoryListener {
 }
 
 class WatchedLibrary {
-  constructor({library, inotify, verbose, ...restProps}) {
+  constructor({library, verbose, ...restProps}) {
     const restPropsKeys = Object.keys(restProps)
 
     if (restPropsKeys.length) {
@@ -236,29 +187,26 @@ class WatchedLibrary {
 
     this.library = library
     this.verbose = verbose
+
     this.liraryListener = new DirectoryListener({
       callback: this.callback,
       localPath: "",
       ignore: this.shouldIgnore,
-      inotify,
       sourcePath: library.source,
-      verbose,
-      watchFor: Inotify.IN_MODIFY | Inotify.IN_CREATE | Inotify.IN_DELETE | Inotify.IN_MOVED_FROM | Inotify.IN_MOVED_TO
+      verbose
     })
   }
 
   async watch() {
-    await this.liraryListener.watchSubDirs()
+    await this.liraryListener.watch()
   }
 
-  stopWatch() {
-    this.liraryListener.stopListener()
+  async stopWatch() {
+    await this.liraryListener.stopListener()
   }
 
-  shouldIgnore = ({file}) => {
-    const {name} = file
-
-    if (name.startsWith(".") || name == "node_modules") {
+  shouldIgnore = ({fileName}) => {
+    if (fileName.startsWith(".") || fileName == "node_modules") {
       return true
     }
 
@@ -335,12 +283,11 @@ class LibrariesWatcher {
     this.libraries = libraries
     this.verbose = verbose
     this.watchedLibraries = []
-    this.inotify = new Inotify()
   }
 
   async watch() {
     for (const library of this.libraries) {
-      const watchedLibrary = new WatchedLibrary({library, inotify: this.inotify, verbose: this.verbose})
+      const watchedLibrary = new WatchedLibrary({library, verbose: this.verbose})
 
       await watchedLibrary.watch()
 
@@ -350,7 +297,7 @@ class LibrariesWatcher {
 
   async stopWatch() {
     for (const watchedLibrary of this.watchedLibraries) {
-      watchedLibrary.stopWatch()
+      await watchedLibrary.stopWatch()
     }
   }
 }
