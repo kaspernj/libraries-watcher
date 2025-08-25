@@ -2,6 +2,7 @@ import fs from "fs/promises"
 import LibrariesWatcher from "./libraries-watcher.js"
 import path from "path"
 import {fileURLToPath} from "url"
+import wait from "awaitery/src/wait.js"
 import waitFor from "awaitery/src/wait-for.js"
 
 const __filename = fileURLToPath(import.meta.url) // get the resolved path to the file

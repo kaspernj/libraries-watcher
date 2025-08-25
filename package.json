@@ -28,7 +28,7 @@
   },
   "homepage": "https://github.com/kaspernj/libraries-watcher#readme",
   "dependencies": {
-    "inotify-remastered-plus": "^2.5.0"
+    "chokidar": "^4.0.3"
   },
   "devDependencies": {
     "awaitery": "^1.0.1",
