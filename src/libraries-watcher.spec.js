@@ -3,6 +3,7 @@ import LibrariesWatcher from "./libraries-watcher.js"
 import path from "path"
 import {fileURLToPath} from "url"
 import waitFor from "awaitery/src/wait-for.js"
+import wait from "awaitery/src/wait.js"
 
 const __filename = fileURLToPath(import.meta.url) // get the resolved path to the file
 const __dirname = path.dirname(__filename) // get the name of the directory
@@ -103,11 +104,48 @@ describe("libraries-watcher", () => {
       await fs.writeFile(`${testDirSource}/testdir1/testdir2/testfile`, "Test")
 
       await waitFor(async () => {
-        if (!await fileExists(`${testDirSource}/testdir1/testdir2/testfile`)) throw new Error("Target file doesnt exist")
+        if (!await fileExists(`${testDirTarget}/testdir1/testdir2/testfile`)) throw new Error("Target file doesnt exist")
       })
 
       await waitFor(async () => {
         const fileContent = await fs.readFile(`${testDirTarget}/testdir1/testdir2/testfile`, "utf8")
+
+        if (fileContent != "Test") {
+          throw new Error(`Unexpected file content: ${fileContent}`)
+        }
+      })
+    } finally {
+      await librariesWatcher.stopWatch()
+    }
+  })
+
+  it("syncs creation of sym-links in sub-folders", async () => {
+    const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
+
+    await fs.mkdir(`${testDirSource}/testdir1/testdir2/testdir3/testdir4`, {recursive: true})
+    await fs.mkdir(`${testDirTarget}/testdir1/testdir2/testdir3/testdir4`, {recursive: true})
+
+    await fs.writeFile(`${testDirSource}/testdir1/testdir2/Testfile`, "Test")
+    await fs.writeFile(`${testDirTarget}/testdir1/testdir2/Testfile`, "Test")
+
+    try {
+      await librariesWatcher.watch()
+      await fs.symlink("../../Testfile", `${testDirSource}/testdir1/testdir2/testdir3/testdir4/test-symlink`)
+
+      await waitFor(async () => {
+        if (!await fileExists(`${testDirTarget}/testdir1/testdir2/testdir3/testdir4/test-symlink`)) throw new Error("Target file doesnt exist")
+      })
+
+      const lstats = await fs.lstat(`${testDirTarget}/testdir1/testdir2/testdir3/testdir4/test-symlink`)
+
+      expect(lstats.isSymbolicLink()).toBeTrue()
+
+      const link = await fs.readlink(`${testDirTarget}/testdir1/testdir2/testdir3/testdir4/test-symlink`)
+
+      expect(link).toEqual("../../Testfile")
+
+      await waitFor(async () => {
+        const fileContent = await fs.readFile(`${testDirTarget}/testdir1/testdir2/testdir3/testdir4/test-symlink`, "utf8")
 
         if (fileContent != "Test") {
           throw new Error(`Unexpected file content: ${fileContent}`)
@@ -179,6 +217,25 @@ describe("libraries-watcher", () => {
     }
   })
 
+  it("syncs movals of directories in sub folders", async () => {
+    const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
+
+    await fs.mkdir(`${testDirSource}/testdir1/testdir2/testdir3/testdir4`, {recursive: true})
+    await fs.mkdir(`${testDirTarget}/testdir1/testdir2/testdir3/testdir4`, {recursive: true})
+
+    try {
+      await librariesWatcher.watch()
+      await fs.rename(`${testDirSource}/testdir1/testdir2/testdir3/testdir4`, `${testDirSource}/testdir1/testdir2/testdir5`)
+
+      await waitFor(async () => {
+        if (await fileExists(`${testDirTarget}/testdir1/testdir2/testdir3/testdir4`)) throw new Error("Move from path exists")
+        if (!await fileExists(`${testDirTarget}/testdir1/testdir2/testdir5`)) throw new Error("Move to path doesnt exist")
+      })
+    } finally {
+      await librariesWatcher.stopWatch()
+    }
+  })
+
   it("syncs changes to files in sub folders", async () => {
     const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
 
@@ -198,6 +255,62 @@ describe("libraries-watcher", () => {
         if (fileContent != "Test change") {
           throw new Error(`Unexpected file content: ${fileContent}`)
         }
+      })
+    } finally {
+      await librariesWatcher.stopWatch()
+    }
+  })
+
+  it("syncs mods to files in sub folders", async () => {
+    const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
+
+    await fs.mkdir(`${testDirSource}/testdir1/testdir2`, {recursive: true})
+    await fs.mkdir(`${testDirTarget}/testdir1/testdir2`, {recursive: true})
+
+    await fs.writeFile(`${testDirSource}/testdir1/testdir2/Testfile`, "Test")
+    await fs.writeFile(`${testDirTarget}/testdir1/testdir2/Testfile`, "Test")
+
+    try {
+      await librariesWatcher.watch()
+      await fs.chmod(`${testDirSource}/testdir1/testdir2/Testfile`, 0o600)
+
+      await waitFor(async () => {
+        const stat = await fs.stat(`${testDirTarget}/testdir1/testdir2/Testfile`)
+        const modeString = stat.mode.toString(8)
+        const mode = modeString.substring(modeString.length - 4, modeString.length)
+
+        if (mode != "0600") throw new Error(`Expected ${mode} to be 0600`)
+      })
+    } finally {
+      await librariesWatcher.stopWatch()
+    }
+  })
+
+  it("syncs mods to directories in sub folders", async () => {
+    const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
+
+    await fs.mkdir(`${testDirSource}/testdir1/testdir2`, {recursive: true})
+    await fs.mkdir(`${testDirTarget}/testdir1/testdir2`, {recursive: true})
+
+    await fs.writeFile(`${testDirSource}/testdir1/testdir2/Testfile`, "Test")
+    await fs.writeFile(`${testDirTarget}/testdir1/testdir2/Testfile`, "Test")
+
+    try {
+      await librariesWatcher.watch()
+      await wait(500)
+      await fs.chmod(`${testDirSource}/testdir1/testdir2`, 0o700)
+
+      await waitFor(async () => {
+        const statsSource = await fs.stat(`${testDirSource}/testdir1/testdir2`)
+        const modeStringSource = statsSource.mode.toString(8)
+        const modeSource = modeStringSource.substring(modeStringSource.length - 4, modeStringSource.length)
+
+        const statsTarget = await fs.stat(`${testDirTarget}/testdir1/testdir2`)
+        const modeStringTarget = statsTarget.mode.toString(8)
+        const modeTarget = modeStringTarget.substring(modeStringTarget.length - 4, modeStringTarget.length)
+
+        if (modeSource != "0700") throw new Error(`Expected target mode ${modeSource} to be 0700`)
+        if (modeTarget != "0700") throw new Error(`Expected target mode ${modeTarget} to be 0700`)
       })
     } finally {
       await librariesWatcher.stopWatch()
