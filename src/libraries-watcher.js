@@ -38,7 +38,33 @@ class DirectoryListener {
       this.watcher.on("all", this.onChokidarEvent)
       this.watcher.on("ready", this.onChokidarReady)
       this.watcher.on("error", this.onChokidarError)
+      this.watcher.on("raw", this.onChokidarRaw)
     })
+  }
+
+  onChokidarRaw = async (event, path, details, ...restArgs) => {
+    if (this.verbose) console.log("onChokidarRaw", {event, path, details, restArgs})
+
+    if (event == "rename" && details.watchedPath.endsWith(path)) {
+      const sourcePath = details.watchedPath
+      const name = sourcePath.substring(this.sourcePath.length + 1, sourcePath.length)
+      const localPath = `${this.localPath}/${name}`
+      let lstats
+
+      try {
+        lstats = await fs.lstat(sourcePath)
+      } catch (error) {
+        if (error.message.startsWith("ENOENT")) {
+          // Ignore if the path no longer exists
+          return
+        }
+      }
+
+      if (!lstats.isSymbolicLink() && lstats.isDirectory()) {
+        // This happens when chmod'ing a directory
+        this.args.callback({event: "changeDir", isDirectory: lstats.isDirectory(), localPath, sourcePath, stats: lstats})
+      }
+    }
   }
 
   onChokidarReady = () => {
@@ -112,11 +138,11 @@ class DirectoryListener {
     } else if (event == "addDir" || event == "unlinkDir") {
       isDirectory = true
     } else {
-      isDirectory = await stats.isDirectory()
+      isDirectory = stats.isDirectory()
     }
 
-    if (this.verbose) console.log(`${localPath} ${event}`)
-    this.args.callback({event, isDirectory, localPath, sourcePath})
+    if (this.verbose) console.log(`${localPath} ${event}`, {stats})
+    this.args.callback({event, isDirectory, localPath, sourcePath, stats})
   }
 }
 
@@ -156,13 +182,11 @@ class WatchedLibrary {
     return false
   }
 
-  callback = async ({event, isDirectory, localPath, sourcePath}) => {
+  callback = async ({event, isDirectory, localPath, sourcePath, stats}) => {
     for (const destination of this.library.destinations) {
       const targetPath = `${destination}/${localPath}`
 
       if (event == "add") {
-        if (this.verbose) console.log(`Copy ${sourcePath} to ${targetPath}`)
-
         const dirName = path.dirname(targetPath)
 
         if (!await pathExists(dirName)) {
@@ -170,7 +194,19 @@ class WatchedLibrary {
           await fs.mkdir(dirName, {recursive: true})
         }
 
-        await fs.copyFile(sourcePath, targetPath, fs.constants.COPYFILE_FICLONE)
+        const lstats = await fs.lstat(sourcePath)
+
+        if (lstats.isSymbolicLink()) {
+          const link = await fs.readlink(sourcePath)
+
+          if (this.verbose) console.log(`Making symlink here ${targetPath} with link: ${link}`)
+
+          await fs.symlink(link, targetPath)
+        } else {
+          if (this.verbose) console.log(`Copy ${sourcePath} to ${targetPath}`)
+
+          await fs.copyFile(sourcePath, targetPath, fs.constants.COPYFILE_FICLONE)
+        }
       } else if (event == "addDir") {
         if (this.verbose) console.log(`Create dir ${targetPath}`)
 
@@ -205,6 +241,8 @@ class WatchedLibrary {
           // FIXME: We should only copy entire file, if the content was changed. Can we detect if the contents was changed? Maybe only props were changed?
           await await fs.copyFile(sourcePath, targetPath, fs.constants.COPYFILE_FICLONE)
         }
+      } else if (event == "changeDir") {
+        await fs.chmod(targetPath, stats.mode)
       } else if (event == "unlink") {
         if (this.verbose) console.log(`Path ${localPath} was deleted`)
 
