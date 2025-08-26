@@ -7,8 +7,13 @@ import wait from "awaitery/src/wait.js"
 
 const __filename = fileURLToPath(import.meta.url) // get the resolved path to the file
 const __dirname = path.dirname(__filename) // get the name of the directory
-const testDirSource = await fs.realpath(`${__dirname}/../spec/support/test-dir/source`)
-const testDirTarget = await fs.realpath(`${__dirname}/../spec/support/test-dir/target`)
+const rootPath = await fs.realpath(`${__dirname}/..`)
+
+await fs.mkdir(`${rootPath}/spec/support/test-dir/source`, {recursive: true})
+await fs.mkdir(`${rootPath}/spec/support/test-dir/target`, {recursive: true})
+
+const testDirSource = await fs.realpath(`${rootPath}/spec/support/test-dir/source`)
+const testDirTarget = await fs.realpath(`${rootPath}/spec/support/test-dir/target`)
 const sourceFilePath = `${testDirSource}/test.txt`
 const targetFilePath = `${testDirTarget}/test.txt`
 const sourceDirPath = `${testDirSource}/testdir`
