@@ -47,8 +47,6 @@ class DirectoryListener {
 
     if (event == "rename" && details.watchedPath.endsWith(path)) {
       const sourcePath = details.watchedPath
-      const name = sourcePath.substring(this.sourcePath.length + 1, sourcePath.length)
-      const localPath = `${this.localPath}/${name}`
       let lstats
 
       try {
@@ -61,6 +59,9 @@ class DirectoryListener {
       }
 
       if (!lstats.isSymbolicLink() && lstats.isDirectory()) {
+        const name = sourcePath.substring(this.sourcePath.length + 1, sourcePath.length)
+        const localPath = `${this.localPath}/${name}`
+
         // This happens when chmod'ing a directory
         this.args.callback({event: "changeDir", isDirectory: lstats.isDirectory(), localPath, sourcePath, stats: lstats})
       }
