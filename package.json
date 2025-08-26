@@ -4,7 +4,7 @@
   },
   "name": "libraries-watcher",
   "type": "module",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Watch libraries and sync changes into multiple other paths as an alternative to package-linking.",
   "main": "src/libraries-watcher.js",
   "scripts": {
