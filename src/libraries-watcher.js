@@ -221,7 +221,16 @@ class WatchedLibrary {
         if (!await pathExists(targetPath)) {
           const lstat = await fs.lstat(sourcePath)
 
-          await fs.mkdir(targetPath, {mode: lstat.mode})
+          try {
+            await fs.mkdir(targetPath, {mode: lstat.mode})
+          } catch (error) {
+            if (error.message.includes("EEXIST: file already exists")) {
+              console.error(error.message)
+            } else {
+              throw error
+            }
+          }
+
           await fs.chown(targetPath, lstat.uid, lstat.gid)
           await fs.chmod(targetPath, lstat.mode)
         }
