@@ -2,7 +2,17 @@ import chokidar from "chokidar"
 import fs from "fs/promises"
 import path from "path"
 
-const pathExists = async (fileOrDirPath) => {
+function ignoreFile(sourcePath) {
+  const extName = path.extname(sourcePath)
+
+  if (extName == ".sqlite-journal") {
+    return true
+  }
+
+  return false
+}
+
+async function pathExists(fileOrDirPath) {
   try {
     await fs.access(fileOrDirPath)
 
@@ -248,8 +258,14 @@ class WatchedLibrary {
         if (isDirectory) {
           // FIXME: What was changed? Should we sync something?
         } else if (!isDirectory) {
-          // FIXME: We should only copy entire file, if the content was changed. Can we detect if the contents was changed? Maybe only props were changed?
-          await await fs.copyFile(sourcePath, targetPath, fs.constants.COPYFILE_FICLONE)
+          if (!ignoreFile(sourcePath)) {
+            // FIXME: We should only copy entire file, if the content was changed. Can we detect if the contents was changed? Maybe only props were changed?
+            try {
+              await await fs.copyFile(sourcePath, targetPath, fs.constants.COPYFILE_FICLONE)
+            } catch (error) {
+              console.error(`Couldn't copy file file: ${error.message}`)
+            }
+          }
         }
       } else if (event == "changeDir") {
         await fs.chmod(targetPath, stats.mode)
@@ -305,4 +321,5 @@ class LibrariesWatcher {
   }
 }
 
+export {ignoreFile}
 export default LibrariesWatcher

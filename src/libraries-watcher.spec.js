@@ -1,5 +1,5 @@
 import fs from "fs/promises"
-import LibrariesWatcher from "./libraries-watcher.js"
+import LibrariesWatcher, {ignoreFile} from "./libraries-watcher.js"
 import path from "path"
 import {fileURLToPath} from "url"
 import waitFor from "awaitery/src/wait-for.js"
@@ -408,5 +408,10 @@ describe("libraries-watcher", () => {
     } finally {
       await librariesWatcher.stopWatch()
     }
+  })
+
+  it("ignores certain files", () => {
+    expect(ignoreFile("/some/path/test.sqlite-journal")).toBeTrue()
+    expect(ignoreFile("/some/path/test.js")).toBeFalse()
   })
 })
