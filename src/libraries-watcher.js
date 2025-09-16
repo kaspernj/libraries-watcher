@@ -258,7 +258,7 @@ class WatchedLibrary {
         if (isDirectory) {
           // FIXME: What was changed? Should we sync something?
         } else if (!isDirectory) {
-          if (ignoreFile(sourcePath)) {
+          if (!ignoreFile(sourcePath)) {
             // FIXME: We should only copy entire file, if the content was changed. Can we detect if the contents was changed? Maybe only props were changed?
             try {
               await await fs.copyFile(sourcePath, targetPath, fs.constants.COPYFILE_FICLONE)
