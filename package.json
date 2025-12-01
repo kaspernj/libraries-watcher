@@ -28,7 +28,7 @@
   },
   "homepage": "https://github.com/kaspernj/libraries-watcher#readme",
   "dependencies": {
-    "chokidar": "^4.0.3"
+    "chokidar": "^5.0.0"
   },
   "devDependencies": {
     "awaitery": "^1.0.1",
