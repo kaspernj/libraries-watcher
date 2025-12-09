@@ -152,7 +152,7 @@ class DirectoryListener {
       isDirectory = stats.isDirectory()
     }
 
-    if (this.verbose) console.log(`${localPath} ${event}`, {stats})
+    if (this.verbose) console.log(`${localPath} ${event}`)
     this.args.callback({event, isDirectory, localPath, sourcePath, stats})
   }
 }
@@ -194,7 +194,10 @@ class WatchedLibrary {
   }
 
   callback = async ({event, isDirectory, localPath, sourcePath, stats}) => {
-    if (ignoreFile(sourcePath)) return
+    if (ignoreFile(sourcePath)) {
+      if (this.verbose) console.log(`Ignoring ${event} on ${sourcePath}`)
+      return
+    }
 
     for (const destination of this.library.destinations) {
       const targetPath = `${destination}/${localPath}`
@@ -276,7 +279,15 @@ class WatchedLibrary {
           const lstat = await fs.lstat(targetPath)
 
           if (lstat.isFile() || lstat.isSymbolicLink()) {
-            await fs.unlink(targetPath)
+            try {
+              await fs.unlink(targetPath)
+            } catch (error) {
+              if (error.message.startsWith("ENOENT: ")) {
+                // Ignore - file have already been deleted.
+              } else {
+                throw error
+              }
+            }
           }
         }
       } else if (event == "unlinkDir") {
