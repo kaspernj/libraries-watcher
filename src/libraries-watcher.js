@@ -221,7 +221,15 @@ class WatchedLibrary {
         } else {
           if (this.verbose) console.log(`Copy ${sourcePath} to ${targetPath}`)
 
-          await fs.copyFile(sourcePath, targetPath, fs.constants.COPYFILE_FICLONE)
+          try {
+            await fs.copyFile(sourcePath, targetPath, fs.constants.COPYFILE_FICLONE)
+          } catch (error) {
+            if (error.message.startsWith("ENOENT: ")) {
+              // Ignore - file have already been deleted.
+            } else {
+              throw error
+            }
+          }
         }
       } else if (event == "addDir") {
         if (this.verbose) console.log(`Create dir ${targetPath}`)
@@ -271,7 +279,16 @@ class WatchedLibrary {
           }
         }
       } else if (event == "changeDir") {
-        await fs.chmod(targetPath, stats.mode)
+        // Sometimes it gets removed really fast again, before we can react to the change.
+        try {
+          await fs.chmod(targetPath, stats.mode)
+        } catch (error) {
+          if (error.message.startsWith("ENOENT: ")) {
+            // Ignore - file have already been deleted.
+          } else {
+            throw error
+          }
+        }
       } else if (event == "unlink") {
         if (this.verbose) console.log(`Path ${localPath} was deleted`)
 
