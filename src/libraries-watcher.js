@@ -210,7 +210,18 @@ class WatchedLibrary {
           await fs.mkdir(dirName, {recursive: true})
         }
 
-        const lstats = await fs.lstat(sourcePath)
+        let lstats
+
+        try {
+          lstats = await fs.lstat(sourcePath)
+        } catch (error) {
+          if (error.message.startsWith("ENOENT: ")) {
+            // Ignore - file has been deleted.
+            return
+          } else {
+            throw error
+          }
+        }
 
         if (lstats.isSymbolicLink()) {
           const link = await fs.readlink(sourcePath)
