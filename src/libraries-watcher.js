@@ -305,7 +305,7 @@ class WatchedLibrary {
         try {
           await fs.chmod(targetPath, stats.mode)
         } catch (error) {
-          if (error.message.startsWith("ENOENT: ")) {
+          if (error?.message?.startsWith("ENOENT: ")) {
             console.error(`Couldn't change file mode: ${error.message} - file has been deleted.`)
           } else {
             throw error
@@ -315,13 +315,24 @@ class WatchedLibrary {
         if (this.verbose) console.log(`Path ${localPath} was deleted`)
 
         if (await pathExists(targetPath)) {
-          const lstat = await fs.lstat(targetPath)
+          let lstat
+
+          try {
+            lstat = await fs.lstat(targetPath)
+          } catch (error) {
+            if (error?.message?.startsWith("ENOENT: ")) {
+              console.error(`Couldn't delete file: ${error.message} - file has already been deleted.`)
+              return
+            } else {
+              throw error
+            }
+          }
 
           if (lstat.isFile() || lstat.isSymbolicLink()) {
             try {
               await fs.unlink(targetPath)
             } catch (error) {
-              if (error.message.startsWith("ENOENT: ")) {
+              if (error?.message?.startsWith("ENOENT: ")) {
                 console.error(`Couldn't delete file: ${error.message} - file has already been deleted.`)
               } else {
                 throw error
