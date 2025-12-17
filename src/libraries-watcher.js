@@ -253,7 +253,18 @@ class WatchedLibrary {
         }
 
         if (!await pathExists(targetPath)) {
-          const lstat = await fs.lstat(sourcePath)
+          let lstat
+
+          try{
+            lstat = await fs.lstat(sourcePath)
+          } catch (error) {
+            if (error.message.includes("ENOENT: no such file or directory")) {
+              console.error(`Couldn't copy ${sourcePath} to ${targetPath} - source file has been deleted.`)
+              return
+            } else {
+              throw error
+            }
+          }
 
           try {
             await fs.mkdir(targetPath, {mode: lstat.mode})
