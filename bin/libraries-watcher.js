@@ -16,7 +16,7 @@ for (let i = 0; i < processArgs.length; i++) {
     console.log("--config, -c: Path to the config file")
     console.log("--verbose, -v: Show more information")
 
-    exit()
+    process.exit()
   } else if (arg == "--config" || arg == "-c") {
     args.config = processArgs[++i]
   } else if (arg == "--verbose" || arg == "-v") {
@@ -30,7 +30,10 @@ if (!args.config) throw new Error("No config file specified")
 if (args.verbose) console.log(`Using config file ${args.config}`)
 
 const configJson = await fs.readFile(args.config)
+
+// @ts-expect-error
 const config = JSON.parse(configJson)
+
 const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: args.verbose})
 
 await librariesWatcher.watch()
