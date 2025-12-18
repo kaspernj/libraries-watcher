@@ -1,7 +1,43 @@
+// @ts-check
+
 import chokidar from "chokidar"
 import fs from "fs/promises"
 import path from "path"
+import retry from "awaitery/build/retry.js"
 
+/**
+ * @typedef {object} CallbackFunctionArgs
+ * @property {import("chokidar/handler.js").EventName & "changeDir"} event
+ * @property {boolean} isDirectory
+ * @property {string} localPath
+ * @property {string} sourcePath
+ * @property {import("fs").Stats} stats
+ */
+/**
+ * @typedef {function(CallbackFunctionArgs) : void} CallbackFunction
+ */
+
+/**
+ * @typedef {object} IgnoreFunctionArgs
+ * @property {string} fileName
+ * @property {string} localPath
+ * @property {string} fullPath\
+ */
+/**
+ * @typedef {function(IgnoreFunctionArgs) : boolean} IgnoreFunction
+ */
+
+/**
+ * @typedef {object} LibraryObject
+ * @property {string[]} destinations
+ * @property {string} name
+ * @property {string} source
+ */
+
+/**
+ * @param {string} sourcePath
+ * @returns {boolean}
+ */
 function ignoreFile(sourcePath) {
   const extName = path.extname(sourcePath)
 
@@ -12,6 +48,10 @@ function ignoreFile(sourcePath) {
   return false
 }
 
+/**
+ * @param {string} fileOrDirPath
+ * @returns {Promise<boolean>}
+ */
 async function pathExists(fileOrDirPath) {
   try {
     await fs.access(fileOrDirPath)
@@ -23,13 +63,20 @@ async function pathExists(fileOrDirPath) {
 }
 
 class DirectoryListener {
+  /**
+   * @param {object} args
+   * @param {CallbackFunction} args.callback
+   * @param {string} args.sourcePath
+   * @param {IgnoreFunction} args.ignore
+   * @param {string} args.localPath
+   * @param {boolean} args.verbose
+   * @param {string} [args.watchFor]
+   */
   constructor(args) {
     const {callback, sourcePath, ignore, localPath, verbose, watchFor, ...restProps} = args
     const restPropsKeys = Object.keys(restProps)
 
-    if (restPropsKeys.length > 0) {
-      throw new Error(`${restPropsKeys} are not supported`)
-    }
+    if (restPropsKeys.length > 0) throw new Error(`${restPropsKeys} are not supported`)
 
     this.args = args
     this.initial = true
@@ -39,19 +86,26 @@ class DirectoryListener {
     this.verbose = verbose
   }
 
+  /** @returns {Promise<void>} */
   watch() {
     return new Promise((resolve, reject) => {
       this.watchResolve = resolve
       this.watchReject = reject
 
       this.watcher = chokidar.watch(this.sourcePath, {alwaysStat: true, ignored: this.ignored})
-      this.watcher.on("all", this.onChokidarEvent)
       this.watcher.on("ready", this.onChokidarReady)
       this.watcher.on("error", this.onChokidarError)
+      this.watcher.on("all", this.onChokidarEvent)
       this.watcher.on("raw", this.onChokidarRaw)
     })
   }
 
+  /**
+   * @param {string} event
+   * @param {string} path
+   * @param {{watchedPath: string}} details
+   * @param {...any} restArgs
+   */
   onChokidarRaw = async (event, path, details, ...restArgs) => {
     if (this.verbose) console.log("onChokidarRaw", {event, path, details, restArgs})
 
@@ -62,10 +116,15 @@ class DirectoryListener {
       try {
         lstats = await fs.lstat(sourcePath)
       } catch (error) {
-        if (error.message.startsWith("ENOENT")) {
+        if (error instanceof Error && error.message.startsWith("ENOENT")) {
           console.error(`Can't handle event ${event} for ${sourcePath} - it no longer exists`)
           return
         }
+      }
+
+      if (!lstats) {
+        console.error("Couldn't get lstats")
+        return
       }
 
       if (!lstats.isSymbolicLink() && lstats.isDirectory()) {
@@ -73,19 +132,28 @@ class DirectoryListener {
         const localPath = `${this.localPath}/${name}`
 
         // This happens when chmod'ing a directory
+        // @ts-expect-error
         this.args.callback({event: "changeDir", isDirectory: lstats.isDirectory(), localPath, sourcePath, stats: lstats})
       }
     }
   }
 
+  /** @returns {void} */
   onChokidarReady = () => {
     this.initial = false
     this.active = true
+
+    if (!this.watchResolve) throw new Error("No watchResolve?")
+
     this.watchResolve()
     this.watchResolve = null
     this.watchReject = null
   }
 
+  /**
+   * @param {unknown} error
+   * @returns {void}
+   */
   onChokidarError = (error) => {
     if (this.watchReject) {
       this.watchReject(error)
@@ -94,6 +162,10 @@ class DirectoryListener {
     }
   }
 
+  /**
+   * @param {string} fullPath
+   * @returns {boolean}
+   */
   ignored = (fullPath) => {
     const fileName = fullPath.substring(this.sourcePath.length + 1, fullPath.length)
 
@@ -110,16 +182,24 @@ class DirectoryListener {
     return shouldIgnore
   }
 
+  /** @returns {Promise<void>} */
   async stopListener() {
     if (this.verbose) console.log(`Stop listener for ${this.sourcePath}`)
     if (!this.active) throw new Error(`Listener wasn't active for ${this.sourcePath}`)
 
-    await this.watcher.close()
+    if (this.watcher) {
+      await this.watcher.close()
+    }
 
     this.active = false
     delete this.watcher
   }
 
+  /**
+   * @param {string} path
+   * @param {string} fileName
+   * @returns {Promise<import("fs").Dirent | undefined>}
+   */
   async getDirent(path, fileName) {
     const files = await fs.readdir(path, {withFileTypes: true})
     const found = []
@@ -135,6 +215,12 @@ class DirectoryListener {
     throw new Error(`Couldn't find ${fileName} in ${path}: ${found.join(", ")}`)
   }
 
+  /**
+   * @param {import("chokidar/handler.js").EventName} event
+   * @param {string} fullPath
+   * @param {import("fs").Stats} stats
+   * @returns {Promise<void>}
+   */
   onChokidarEvent = async (event, fullPath, stats) => {
     if (this.initial) return
 
@@ -153,12 +239,19 @@ class DirectoryListener {
     }
 
     if (this.verbose) console.log(`${localPath} ${event}`)
+
+    // @ts-expect-error
     this.args.callback({event, isDirectory, localPath, sourcePath, stats})
   }
 }
 
 class WatchedLibrary {
-  constructor({library, verbose, ...restProps}) {
+  /**
+   * @param {object} args
+   * @param {LibraryObject} args.library
+   * @param {boolean} [args.verbose]
+   */
+  constructor({library, verbose = false, ...restProps}) {
     const restPropsKeys = Object.keys(restProps)
 
     if (restPropsKeys.length) {
@@ -177,14 +270,21 @@ class WatchedLibrary {
     })
   }
 
+  /** @returns {Promise<void>} */
   async watch() {
     await this.liraryListener.watch()
   }
 
+  /** @returns {Promise<void>} */
   async stopWatch() {
     await this.liraryListener.stopListener()
   }
 
+  /**
+   * @param {object} args
+   * @param {string} args.fileName
+   * @returns {boolean}
+   */
   shouldIgnore = ({fileName}) => {
     if (fileName.startsWith(".") || fileName == "node_modules") {
       return true
@@ -193,6 +293,10 @@ class WatchedLibrary {
     return false
   }
 
+  /**
+   * @param {CallbackFunctionArgs} args
+   * @returns {Promise<void>}
+   */
   callback = async ({event, isDirectory, localPath, sourcePath, stats}) => {
     if (ignoreFile(sourcePath)) {
       if (this.verbose) console.log(`Ignoring ${event} on ${sourcePath}`)
@@ -215,7 +319,7 @@ class WatchedLibrary {
         try {
           lstats = await fs.lstat(sourcePath)
         } catch (error) {
-          if (error.message.startsWith("ENOENT: ")) {
+          if (error instanceof Error && error.message.startsWith("ENOENT: ")) {
             console.error(`Couldn't copy ${sourcePath} to ${targetPath} - file has been deleted: ${error.message}`)
             return
           } else {
@@ -235,7 +339,7 @@ class WatchedLibrary {
           try {
             await fs.copyFile(sourcePath, targetPath, fs.constants.COPYFILE_FICLONE)
           } catch (error) {
-            if (error.message.startsWith("ENOENT: ")) {
+            if (error instanceof Error && error.message.startsWith("ENOENT: ")) {
               console.error(`Couldn't copy ${sourcePath} to ${targetPath} - file has been deleted: ${error.message}`)
             } else {
               throw error
@@ -258,7 +362,7 @@ class WatchedLibrary {
           try{
             lstat = await fs.lstat(sourcePath)
           } catch (error) {
-            if (error.message.includes("ENOENT: no such file or directory")) {
+            if (error instanceof Error && error.message.includes("ENOENT: no such file or directory")) {
               console.error(`Couldn't copy ${sourcePath} to ${targetPath} - source file has been deleted: ${error.message}`)
               return
             } else {
@@ -269,7 +373,7 @@ class WatchedLibrary {
           try {
             await fs.mkdir(targetPath, {mode: lstat.mode})
           } catch (error) {
-            if (error.message.includes("EEXIST: file already exists")) {
+            if (error instanceof Error && error.message.includes("EEXIST: file already exists")) {
               console.error(`Couldn't create directory ${targetPath} - it already exists: ${error.message}`)
             } else {
               throw error
@@ -297,7 +401,7 @@ class WatchedLibrary {
           try {
             await await fs.copyFile(sourcePath, targetPath, fs.constants.COPYFILE_FICLONE)
           } catch (error) {
-            console.error(`Couldn't copy file file: ${error.message}`)
+            console.error(`Couldn't copy file file: ${error instanceof Error ? error.message : error}`)
           }
         }
       } else if (event == "changeDir") {
@@ -305,7 +409,7 @@ class WatchedLibrary {
         try {
           await fs.chmod(targetPath, stats.mode)
         } catch (error) {
-          if (error?.message?.startsWith("ENOENT: ")) {
+          if (error instanceof Error && error.message.startsWith("ENOENT: ")) {
             console.error(`Couldn't change file mode - file has been deleted: ${error.message}`)
           } else {
             throw error
@@ -320,7 +424,7 @@ class WatchedLibrary {
           try {
             lstat = await fs.lstat(targetPath)
           } catch (error) {
-            if (error?.message?.startsWith("ENOENT: ")) {
+            if (error instanceof Error && error.message.startsWith("ENOENT: ")) {
               console.error(`Couldn't delete file - file has already been deleted: ${error.message}`)
               return
             } else {
@@ -332,7 +436,7 @@ class WatchedLibrary {
             try {
               await fs.unlink(targetPath)
             } catch (error) {
-              if (error?.message?.startsWith("ENOENT: ")) {
+              if (error instanceof Error && error.message.startsWith("ENOENT: ")) {
                 console.error(`Couldn't delete file - file has already been deleted: ${error.message}`)
               } else {
                 throw error
@@ -344,7 +448,9 @@ class WatchedLibrary {
         if (this.verbose) console.log(`Path ${localPath} was deleted`)
 
         if (await pathExists(targetPath)) {
-          await fs.rm(targetPath, {recursive: true})
+          await retry(async () => {
+            await fs.rm(targetPath, {recursive: true})
+          })
         }
       } else {
         if (this.verbose) console.log(`${localPath} ${event} unknown!`)
@@ -354,6 +460,11 @@ class WatchedLibrary {
 }
 
 class LibrariesWatcher {
+  /**
+   * @param {object} args
+   * @param {LibraryObject[]} args.libraries
+   * @param {boolean} [args.verbose]
+   */
   constructor({libraries, verbose, ...restProps}) {
     const restPropsKeys = Object.keys(restProps)
 
@@ -362,9 +473,12 @@ class LibrariesWatcher {
 
     this.libraries = libraries
     this.verbose = verbose
+
+    /** @type {Array<WatchedLibrary>} */
     this.watchedLibraries = []
   }
 
+  /** @returns {Promise<void>} */
   async watch() {
     for (const library of this.libraries) {
       const watchedLibrary = new WatchedLibrary({library, verbose: this.verbose})
@@ -375,6 +489,7 @@ class LibrariesWatcher {
     }
   }
 
+  /** @returns {Promise<void>} */
   async stopWatch() {
     for (const watchedLibrary of this.watchedLibraries) {
       await watchedLibrary.stopWatch()

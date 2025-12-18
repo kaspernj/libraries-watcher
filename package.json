@@ -1,15 +1,23 @@
 {
   "bin": {
-    "libraries-watcher": "bin/libraries-watcher.js"
+    "libraries-watcher": "build/bin/libraries-watcher.js"
   },
   "name": "libraries-watcher",
   "type": "module",
   "version": "1.0.2",
   "description": "Watch libraries and sync changes into multiple other paths as an alternative to package-linking.",
-  "main": "src/libraries-watcher.js",
+  "main": "build/src/libraries-watcher.js",
+  "types": "build/src/libraries-watcher.d.ts",
+  "files": [
+    "build/**"
+  ],
   "scripts": {
+    "build": "rm -rf build && npm run compile",
+    "compile": "tsc && chmod +x build/bin/velocious.js",
     "start": "node bin/libraries-watcher.js",
-    "test": "jasmine"
+    "test": "jasmine",
+    "typecheck": "tsc --noEmit",
+    "watch": "tsc -w"
   },
   "repository": {
     "type": "git",
@@ -28,10 +36,13 @@
   },
   "homepage": "https://github.com/kaspernj/libraries-watcher#readme",
   "dependencies": {
+    "awaitery": "^1.0.6",
     "chokidar": "^5.0.0"
   },
   "devDependencies": {
-    "awaitery": "^1.0.1",
-    "jasmine": "^5.6.0"
+    "@types/jasmine": "^5.1.13",
+    "@types/node": "^25.0.3",
+    "jasmine": "^5.6.0",
+    "typescript": "^5.9.3"
   }
 }
