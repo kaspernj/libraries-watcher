@@ -1,9 +1,10 @@
+import {afterEach, beforeEach, describe, expect, it} from "jasmine"
 import fs from "fs/promises"
 import LibrariesWatcher, {ignoreFile} from "./libraries-watcher.js"
 import path from "path"
 import {fileURLToPath} from "url"
-import waitFor from "awaitery/src/wait-for.js"
-import wait from "awaitery/src/wait.js"
+import waitFor from "awaitery/build/wait-for.js"
+import wait from "awaitery/build/wait.js"
 
 const __filename = fileURLToPath(import.meta.url) // get the resolved path to the file
 const __dirname = path.dirname(__filename) // get the name of the directory
