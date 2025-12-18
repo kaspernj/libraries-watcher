@@ -10,7 +10,10 @@
     "moduleResolution": "nodenext",
     "module": "nodenext",
     "target": "ES2024",
-    "types": ["node"]
+    "types": [
+      "jasmine",
+      "node"
+    ]
   },
   "include": ["bin/**/*", "src/**/*"]
 }
