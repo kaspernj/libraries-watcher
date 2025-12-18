@@ -216,7 +216,7 @@ class WatchedLibrary {
           lstats = await fs.lstat(sourcePath)
         } catch (error) {
           if (error.message.startsWith("ENOENT: ")) {
-            console.error(`Couldn't copy ${sourcePath} to ${targetPath} - file has been deleted.`)
+            console.error(`Couldn't copy ${sourcePath} to ${targetPath} - file has been deleted: ${error.message}`)
             return
           } else {
             throw error
@@ -236,7 +236,7 @@ class WatchedLibrary {
             await fs.copyFile(sourcePath, targetPath, fs.constants.COPYFILE_FICLONE)
           } catch (error) {
             if (error.message.startsWith("ENOENT: ")) {
-              console.error(`Couldn't copy ${sourcePath} to ${targetPath} - file has been deleted.`)
+              console.error(`Couldn't copy ${sourcePath} to ${targetPath} - file has been deleted: ${error.message}`)
             } else {
               throw error
             }
@@ -259,7 +259,7 @@ class WatchedLibrary {
             lstat = await fs.lstat(sourcePath)
           } catch (error) {
             if (error.message.includes("ENOENT: no such file or directory")) {
-              console.error(`Couldn't copy ${sourcePath} to ${targetPath} - source file has been deleted.`)
+              console.error(`Couldn't copy ${sourcePath} to ${targetPath} - source file has been deleted: ${error.message}`)
               return
             } else {
               throw error
@@ -270,7 +270,7 @@ class WatchedLibrary {
             await fs.mkdir(targetPath, {mode: lstat.mode})
           } catch (error) {
             if (error.message.includes("EEXIST: file already exists")) {
-              console.error(error.message)
+              console.error(`Couldn't create directory ${targetPath} - it already exists: ${error.message}`)
             } else {
               throw error
             }
@@ -306,7 +306,7 @@ class WatchedLibrary {
           await fs.chmod(targetPath, stats.mode)
         } catch (error) {
           if (error?.message?.startsWith("ENOENT: ")) {
-            console.error(`Couldn't change file mode: ${error.message} - file has been deleted.`)
+            console.error(`Couldn't change file mode - file has been deleted: ${error.message}`)
           } else {
             throw error
           }
@@ -321,7 +321,7 @@ class WatchedLibrary {
             lstat = await fs.lstat(targetPath)
           } catch (error) {
             if (error?.message?.startsWith("ENOENT: ")) {
-              console.error(`Couldn't delete file: ${error.message} - file has already been deleted.`)
+              console.error(`Couldn't delete file - file has already been deleted: ${error.message}`)
               return
             } else {
               throw error
@@ -333,7 +333,7 @@ class WatchedLibrary {
               await fs.unlink(targetPath)
             } catch (error) {
               if (error?.message?.startsWith("ENOENT: ")) {
-                console.error(`Couldn't delete file: ${error.message} - file has already been deleted.`)
+                console.error(`Couldn't delete file - file has already been deleted: ${error.message}`)
               } else {
                 throw error
               }
