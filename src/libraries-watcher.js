@@ -151,7 +151,7 @@ export default class LibrariesWatcher {
           }
 
           try {
-            await fs.mkdir(targetPath, {mode: lstat.mode})
+            await fs.mkdir(targetPath, {mode: lstat.mode, recursive: true})
           } catch (error) {
             if (error instanceof Error && error.message.includes("EEXIST: file already exists")) {
               console.error(`Couldn't create directory ${targetPath} - it already exists: ${error.message}`)
