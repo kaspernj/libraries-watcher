@@ -1,309 +1,89 @@
-// @ts-check
-
-import chokidar from "chokidar"
 import fs from "fs/promises"
+import ignoreFile from "./ignore-file.js"
 import path from "path"
+import pathExists from "./path-exists.js"
 import retry from "awaitery/build/retry.js"
+import WatchedLibrary from "./watched-library.js"
 
-/**
- * @typedef {object} CallbackFunctionArgs
- * @property {import("chokidar/handler.js").EventName & "changeDir"} event
- * @property {boolean} isDirectory
- * @property {string} localPath
- * @property {string} sourcePath
- * @property {import("fs").Stats} stats
- */
-/**
- * @typedef {function(CallbackFunctionArgs) : void} CallbackFunction
- */
-
-/**
- * @typedef {object} IgnoreFunctionArgs
- * @property {string} fileName
- * @property {string} localPath
- * @property {string} fullPath\
- */
-/**
- * @typedef {function(IgnoreFunctionArgs) : boolean} IgnoreFunction
- */
-
-/**
- * @typedef {object} LibraryObject
- * @property {string[]} destinations
- * @property {string} name
- * @property {string} source
- */
-
-/**
- * @param {string} sourcePath
- * @returns {boolean}
- */
-function ignoreFile(sourcePath) {
-  const extName = path.extname(sourcePath)
-
-  if (extName == ".sqlite-journal") {
-    return true
-  }
-
-  return false
-}
-
-/**
- * @param {string} fileOrDirPath
- * @returns {Promise<boolean>}
- */
-async function pathExists(fileOrDirPath) {
-  try {
-    await fs.access(fileOrDirPath)
-
-    return true
-  } catch (error) {
-    return false
-  }
-}
-
-class DirectoryListener {
+export default class LibrariesWatcher {
   /**
    * @param {object} args
-   * @param {CallbackFunction} args.callback
-   * @param {string} args.sourcePath
-   * @param {IgnoreFunction} args.ignore
-   * @param {string} args.localPath
-   * @param {boolean} args.verbose
-   * @param {string} [args.watchFor]
-   */
-  constructor(args) {
-    const {callback, sourcePath, ignore, localPath, verbose, watchFor, ...restProps} = args
-    const restPropsKeys = Object.keys(restProps)
-
-    if (restPropsKeys.length > 0) throw new Error(`${restPropsKeys} are not supported`)
-
-    this.args = args
-    this.initial = true
-    this.localPath = localPath
-    this.sourcePath = sourcePath
-    this.tempData = {}
-    this.verbose = verbose
-  }
-
-  /** @returns {Promise<void>} */
-  watch() {
-    return new Promise((resolve, reject) => {
-      this.watchResolve = resolve
-      this.watchReject = reject
-
-      this.watcher = chokidar.watch(this.sourcePath, {alwaysStat: true, ignored: this.ignored})
-      this.watcher.on("ready", this.onChokidarReady)
-      this.watcher.on("error", this.onChokidarError)
-      this.watcher.on("all", this.onChokidarEvent)
-      this.watcher.on("raw", this.onChokidarRaw)
-    })
-  }
-
-  /**
-   * @param {string} event
-   * @param {string} path
-   * @param {{watchedPath: string}} details
-   * @param {...any} restArgs
-   */
-  onChokidarRaw = async (event, path, details, ...restArgs) => {
-    if (this.verbose) console.log("onChokidarRaw", {event, path, details, restArgs})
-
-    if (event == "rename" && details.watchedPath.endsWith(path)) {
-      const sourcePath = details.watchedPath
-      let lstats
-
-      try {
-        lstats = await fs.lstat(sourcePath)
-      } catch (error) {
-        if (error instanceof Error && error.message.startsWith("ENOENT")) {
-          console.error(`Can't handle event ${event} for ${sourcePath} - it no longer exists`)
-          return
-        }
-      }
-
-      if (!lstats) {
-        console.error("Couldn't get lstats")
-        return
-      }
-
-      if (!lstats.isSymbolicLink() && lstats.isDirectory()) {
-        const name = sourcePath.substring(this.sourcePath.length + 1, sourcePath.length)
-        const localPath = `${this.localPath}/${name}`
-
-        // This happens when chmod'ing a directory
-        // @ts-expect-error
-        this.args.callback({event: "changeDir", isDirectory: lstats.isDirectory(), localPath, sourcePath, stats: lstats})
-      }
-    }
-  }
-
-  /** @returns {void} */
-  onChokidarReady = () => {
-    this.initial = false
-    this.active = true
-
-    if (!this.watchResolve) throw new Error("No watchResolve?")
-
-    this.watchResolve()
-    this.watchResolve = null
-    this.watchReject = null
-  }
-
-  /**
-   * @param {unknown} error
-   * @returns {void}
-   */
-  onChokidarError = (error) => {
-    if (this.watchReject) {
-      this.watchReject(error)
-    } else {
-      console.error(error)
-    }
-  }
-
-  /**
-   * @param {string} fullPath
-   * @returns {boolean}
-   */
-  ignored = (fullPath) => {
-    const fileName = fullPath.substring(this.sourcePath.length + 1, fullPath.length)
-
-    if (fileName == "") return false
-
-    const localPath = `${this.localPath}/${fileName}`
-
-    let shouldIgnore = false
-
-    if (this.args.ignore) {
-      shouldIgnore = this.args.ignore({fileName, localPath, fullPath})
-    }
-
-    return shouldIgnore
-  }
-
-  /** @returns {Promise<void>} */
-  async stopListener() {
-    if (this.verbose) console.log(`Stop listener for ${this.sourcePath}`)
-    if (!this.active) throw new Error(`Listener wasn't active for ${this.sourcePath}`)
-
-    if (this.watcher) {
-      await this.watcher.close()
-    }
-
-    this.active = false
-    delete this.watcher
-  }
-
-  /**
-   * @param {string} path
-   * @param {string} fileName
-   * @returns {Promise<import("fs").Dirent | undefined>}
-   */
-  async getDirent(path, fileName) {
-    const files = await fs.readdir(path, {withFileTypes: true})
-    const found = []
-
-    for (const file of files) {
-      found.push(file.name)
-
-      if (file.name == fileName) {
-        return file
-      }
-    }
-
-    throw new Error(`Couldn't find ${fileName} in ${path}: ${found.join(", ")}`)
-  }
-
-  /**
-   * @param {import("chokidar/handler.js").EventName} event
-   * @param {string} fullPath
-   * @param {import("fs").Stats} stats
-   * @returns {Promise<void>}
-   */
-  onChokidarEvent = async (event, fullPath, stats) => {
-    if (this.initial) return
-
-    const name = fullPath.substring(this.sourcePath.length + 1, fullPath.length)
-    const sourcePath = `${this.sourcePath}/${name}`
-    const localPath = `${this.localPath}/${name}`
-
-    let isDirectory
-
-    if (event == "add" || event == "unlink") {
-      isDirectory = false
-    } else if (event == "addDir" || event == "unlinkDir") {
-      isDirectory = true
-    } else {
-      isDirectory = stats.isDirectory()
-    }
-
-    if (this.verbose) console.log(`${localPath} ${event}`)
-
-    // @ts-expect-error
-    this.args.callback({event, isDirectory, localPath, sourcePath, stats})
-  }
-}
-
-class WatchedLibrary {
-  /**
-   * @param {object} args
-   * @param {LibraryObject} args.library
+   * @param {import("./types.js").LibraryObject[]} args.libraries
    * @param {boolean} [args.verbose]
    */
-  constructor({library, verbose = false, ...restProps}) {
+  constructor({libraries, verbose = false, ...restProps}) {
     const restPropsKeys = Object.keys(restProps)
 
-    if (restPropsKeys.length) {
-      throw new Error(`Unknown props: ${restPropsKeys}`)
-    }
+    if (restPropsKeys.length > 0) throw new Error(`Unknown properties: ${restPropsKeys}`)
+    if (!libraries || !Array.isArray(libraries)) throw new Error(`libraries must be an array`)
 
-    this.library = library
+    /** @type {import("./types.js").CallbackFunctionArgs[]} */
+    this.events = []
+    this.handlingEvents = false
+    this.libraries = libraries
     this.verbose = verbose
 
-    this.liraryListener = new DirectoryListener({
-      callback: this.callback,
-      localPath: "",
-      ignore: this.shouldIgnore,
-      sourcePath: library.source,
-      verbose
-    })
+    /** @type {Array<WatchedLibrary>} */
+    this.watchedLibraries = []
   }
 
   /** @returns {Promise<void>} */
   async watch() {
-    await this.liraryListener.watch()
+    for (const library of this.libraries) {
+      const watchedLibrary = new WatchedLibrary({
+        library,
+        librariesWatcher: this,
+        verbose: this.verbose
+      })
+
+      await watchedLibrary.watch()
+      this.watchedLibraries.push(watchedLibrary)
+    }
   }
 
   /** @returns {Promise<void>} */
   async stopWatch() {
-    await this.liraryListener.stopListener()
-  }
-
-  /**
-   * @param {object} args
-   * @param {string} args.fileName
-   * @returns {boolean}
-   */
-  shouldIgnore = ({fileName}) => {
-    if (fileName.startsWith(".") || fileName == "node_modules") {
-      return true
+    for (const watchedLibrary of this.watchedLibraries) {
+      await watchedLibrary.stopWatch()
     }
-
-    return false
   }
 
   /**
-   * @param {CallbackFunctionArgs} args
+   * @param {import("./types.js").CallbackFunctionArgs} event
    * @returns {Promise<void>}
    */
-  callback = async ({event, isDirectory, localPath, sourcePath, stats}) => {
+  callback = async (event) => {
+    this.events.push(event)
+    this.handleEvents()
+  }
+
+  async handleEvents() {
+    try {
+      this.handlingEvents = true
+
+      while (this.events.length > 0) {
+        const event = this.events.shift()
+
+        await this.handleEvent(event)
+      }
+    } finally {
+      this.handlingEvents = false
+    }
+  }
+
+  /**
+   * @param {import("./types.js").CallbackFunctionArgs} event
+   * @returns {Promise<void>}
+   */
+  async handleEvent({event, isDirectory, localPath, sourcePath, stats, watchedLibrary}) {
     if (ignoreFile(sourcePath)) {
       if (this.verbose) console.log(`Ignoring ${event} on ${sourcePath}`)
       return
     }
 
-    for (const destination of this.library.destinations) {
+    if (!watchedLibrary) throw new Error("'watchedLibrary' not given")
+
+    for (const destination of watchedLibrary.library.destinations) {
       const targetPath = `${destination}/${localPath}`
 
       if (event == "add") {
@@ -458,44 +238,3 @@ class WatchedLibrary {
     }
   }
 }
-
-class LibrariesWatcher {
-  /**
-   * @param {object} args
-   * @param {LibraryObject[]} args.libraries
-   * @param {boolean} [args.verbose]
-   */
-  constructor({libraries, verbose, ...restProps}) {
-    const restPropsKeys = Object.keys(restProps)
-
-    if (restPropsKeys.length > 0) throw new Error(`Unknown properties: ${restPropsKeys}`)
-    if (!libraries || !Array.isArray(libraries)) throw new Error(`libraries must be an array`)
-
-    this.libraries = libraries
-    this.verbose = verbose
-
-    /** @type {Array<WatchedLibrary>} */
-    this.watchedLibraries = []
-  }
-
-  /** @returns {Promise<void>} */
-  async watch() {
-    for (const library of this.libraries) {
-      const watchedLibrary = new WatchedLibrary({library, verbose: this.verbose})
-
-      await watchedLibrary.watch()
-
-      this.watchedLibraries.push(watchedLibrary)
-    }
-  }
-
-  /** @returns {Promise<void>} */
-  async stopWatch() {
-    for (const watchedLibrary of this.watchedLibraries) {
-      await watchedLibrary.stopWatch()
-    }
-  }
-}
-
-export {ignoreFile}
-export default LibrariesWatcher

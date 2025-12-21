@@ -6,7 +6,6 @@
     "declarationMap": true,
     "inlineSourceMap": true,
     "inlineSources": true,
-    "noEmit": true,
     "outDir": "build",
     "moduleResolution": "nodenext",
     "module": "nodenext",
@@ -16,5 +15,5 @@
       "node"
     ]
   },
-  "include": ["bin/**/*", "src/**/*", "spec/**/*"]
+  "include": ["bin/**/*", "src/**/*"]
 }

@@ -13,11 +13,11 @@
   ],
   "scripts": {
     "build": "rm -rf build && npm run compile",
-    "compile": "tsc && chmod +x build/bin/velocious.js",
+    "compile": "tsc -p tsconfig.build.json && chmod +x build/bin/libraries-watcher.js",
     "start": "node bin/libraries-watcher.js",
     "test": "jasmine",
     "typecheck": "tsc --noEmit",
-    "watch": "tsc -w"
+    "watch": "tsc -w -p tsconfig.build.json"
   },
   "repository": {
     "type": "git",
