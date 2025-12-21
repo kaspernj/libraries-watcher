@@ -15,5 +15,5 @@
       "node"
     ]
   },
-  "include": ["bin/**/*", "src/**/*"]
+  "include": ["bin/**/*", "src/**/*", "spec/libraries-watcher.spec.js"]
 }
