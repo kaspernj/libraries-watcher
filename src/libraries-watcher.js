@@ -108,7 +108,18 @@ export default class LibrariesWatcher {
         }
 
         if (lstats.isSymbolicLink()) {
-          const link = await fs.readlink(sourcePath)
+          let link
+
+          try {
+            link = await fs.readlink(sourcePath)
+          } catch (error) {
+            if (error instanceof Error && error.message.startsWith("ENOENT: ")) {
+              console.error(`Couldn't copy ${sourcePath} to ${targetPath} - symlink has been deleted: ${error.message}`)
+              return
+            } else {
+              throw error
+            }
+          }
 
           if (this.verbose) console.log(`Making symlink here ${targetPath} with link: ${link}`)
 
