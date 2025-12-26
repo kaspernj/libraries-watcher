@@ -1,6 +1,7 @@
 import chokidar from "chokidar"
 import fs from "fs/promises"
 import wait from "awaitery/build/wait.js"
+import nodePath from "path"
 import pathExists from "./path-exists.js"
 
 export default class DirectoryListener {
@@ -56,15 +57,19 @@ export default class DirectoryListener {
 
   /**
    * @param {string} event
-   * @param {string} path
+   * @param {string} eventPath
    * @param {{watchedPath: string}} details
    * @param {...any} restArgs
    */
-  onChokidarRaw = async (event, path, details, ...restArgs) => {
-    if (this.verbose) console.log("onChokidarRaw", {event, path, details, restArgs})
+  onChokidarRaw = async (event, eventPath, details, ...restArgs) => {
+    if (this.verbose) console.log("onChokidarRaw", {event, eventPath, details, restArgs})
 
-    if (event == "rename" && details.watchedPath.endsWith(path)) {
-      const sourcePath = details.watchedPath
+    if (event == "rename" && details?.watchedPath) {
+      const sourcePath = details.watchedPath.endsWith(eventPath)
+        ? details.watchedPath
+        : (nodePath.isAbsolute(eventPath)
+          ? eventPath
+          : nodePath.join(details.watchedPath, eventPath))
       let lstats
 
       try {
@@ -81,7 +86,7 @@ export default class DirectoryListener {
         return
       }
 
-      if (!lstats.isSymbolicLink() && lstats.isDirectory()) {
+      if (!lstats.isSymbolicLink() && lstats.isDirectory() && details.watchedPath.endsWith(eventPath)) {
         const name = sourcePath.substring(this.sourcePath.length + 1, sourcePath.length)
         const localPath = `${this.localPath}/${name}`
 
@@ -94,6 +99,10 @@ export default class DirectoryListener {
           stats: lstats,
           watchedLibrary: this.watchedLibrary
         })
+      } else {
+        const mappedEvent = lstats.isDirectory() ? "addDir" : "add"
+
+        await this.onChokidarEvent(mappedEvent, sourcePath, lstats)
       }
     }
   }
@@ -243,6 +252,14 @@ export default class DirectoryListener {
     if (this.verbose) console.log(`${localPath} ${event}`)
 
     if (event == "unlinkDir" && fullPath == this.sourcePath) {
+      await this.librariesWatcher.callback({
+        event,
+        isDirectory,
+        localPath,
+        sourcePath,
+        stats,
+        watchedLibrary: this.watchedLibrary
+      })
       await this.restartWatcherAfterRecreation()
       return
     }

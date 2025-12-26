@@ -457,6 +457,39 @@ describe("libraries-watcher", () => {
     }
   })
 
+  it("cleans target when the source directory is removed and recreated", async () => {
+    const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
+    const staleSourceFile = `${testDirSource}/stale.txt`
+    const staleTargetFile = `${testDirTarget}/stale.txt`
+    const freshSourceFile = `${testDirSource}/fresh.txt`
+    const freshTargetFile = `${testDirTarget}/fresh.txt`
+
+    await fs.writeFile(staleSourceFile, "Stale")
+    await fs.writeFile(staleTargetFile, "Stale")
+
+    try {
+      await librariesWatcher.watch()
+      await fs.rm(testDirSource, {recursive: true})
+
+      await waitFor(async () => {
+        if (await fileExists(staleTargetFile)) throw new Error("Stale target file exists")
+      })
+
+      await fs.mkdir(testDirSource, {recursive: true})
+      await fs.writeFile(freshSourceFile, "Fresh")
+
+      await waitFor(async () => {
+        if (!await fileExists(freshTargetFile)) throw new Error("Fresh target file doesnt exist")
+      })
+
+      await waitFor(async () => {
+        if (await fileExists(staleTargetFile)) throw new Error("Stale target file exists")
+      })
+    } finally {
+      await librariesWatcher.stopWatch()
+    }
+  })
+
   it("ignores certain files", () => {
     expect(ignoreFile("/some/path/test.sqlite-journal")).toBeTrue()
     expect(ignoreFile("/some/path/test.js")).toBeFalse()
