@@ -1,5 +1,7 @@
 import chokidar from "chokidar"
 import fs from "fs/promises"
+import wait from "awaitery/build/wait.js"
+import pathExists from "./path-exists.js"
 
 export default class DirectoryListener {
   /**
@@ -19,16 +21,27 @@ export default class DirectoryListener {
 
     this.args = args
     this.librariesWatcher = watchedLibrary.librariesWatcher
+    this.active = false
     this.initial = true
     this.localPath = localPath
+    this.processInitialEvents = false
     this.sourcePath = sourcePath
+    this.shouldKeepWatching = true
+    this.restartingPromise = null
     this.tempData = {}
     this.verbose = verbose
     this.watchedLibrary = watchedLibrary
   }
 
-  /** @returns {Promise<void>} */
-  watch() {
+  /**
+   * @param {boolean} [processInitialEvents=false]
+   * @returns {Promise<void>}
+   */
+  watch(processInitialEvents = false) {
+    this.initial = true
+    this.active = false
+    this.processInitialEvents = processInitialEvents
+
     return new Promise((resolve, reject) => {
       this.watchResolve = resolve
       this.watchReject = reject
@@ -129,10 +142,21 @@ export default class DirectoryListener {
     return shouldIgnore
   }
 
-  /** @returns {Promise<void>} */
-  async stopListener() {
+  /**
+   * @param {boolean} [permanent=false]
+   * @returns {Promise<void>}
+   */
+  async stopListener(permanent = false) {
     if (this.verbose) console.log(`Stop listener for ${this.sourcePath}`)
-    if (!this.active) throw new Error(`Listener wasn't active for ${this.sourcePath}`)
+
+    if (permanent) {
+      this.shouldKeepWatching = false
+    }
+
+    if (!this.active) {
+      if (this.verbose) console.log(`Listener already stopped for ${this.sourcePath}`)
+      return
+    }
 
     if (this.watcher) {
       await this.watcher.close()
@@ -162,6 +186,37 @@ export default class DirectoryListener {
     throw new Error(`Couldn't find ${fileName} in ${path}: ${found.join(", ")}`)
   }
 
+  /** @returns {Promise<void>} */
+  async waitForSourceToReappear() {
+    while (!await pathExists(this.sourcePath)) {
+      if (!this.shouldKeepWatching) return
+      await wait(200)
+    }
+  }
+
+  /** @returns {Promise<void>} */
+  restartWatcherAfterRecreation = async () => {
+    if (this.restartingPromise) return this.restartingPromise
+
+    this.restartingPromise = (async () => {
+      console.log(`Stop watching ${this.sourcePath} - source directory removed`)
+
+      await this.stopListener()
+      await this.waitForSourceToReappear()
+
+      if (!this.shouldKeepWatching) return
+
+      console.log(`Restart watching ${this.sourcePath} - source directory re-created`)
+      await this.watch(true)
+    })()
+
+    try {
+      await this.restartingPromise
+    } finally {
+      this.restartingPromise = null
+    }
+  }
+
   /**
    * @param {import("chokidar/handler.js").EventName} event
    * @param {string} fullPath
@@ -169,7 +224,7 @@ export default class DirectoryListener {
    * @returns {Promise<void>}
    */
   onChokidarEvent = async (event, fullPath, stats) => {
-    if (this.initial) return
+    if (this.initial && !this.processInitialEvents) return
 
     const name = fullPath.substring(this.sourcePath.length + 1, fullPath.length)
     const sourcePath = `${this.sourcePath}/${name}`
@@ -186,6 +241,11 @@ export default class DirectoryListener {
     }
 
     if (this.verbose) console.log(`${localPath} ${event}`)
+
+    if (event == "unlinkDir" && fullPath == this.sourcePath) {
+      await this.restartWatcherAfterRecreation()
+      return
+    }
 
     this.librariesWatcher.callback({
       event,

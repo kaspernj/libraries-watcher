@@ -34,7 +34,7 @@ export default class WatchedLibrary {
 
   /** @returns {Promise<void>} */
   async stopWatch() {
-    await this.liraryListener.stopListener()
+    await this.liraryListener.stopListener(true)
   }
 
   /**
