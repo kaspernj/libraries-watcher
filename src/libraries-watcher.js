@@ -123,6 +123,24 @@ export default class LibrariesWatcher {
 
           if (this.verbose) console.log(`Making symlink here ${targetPath} with link: ${link}`)
 
+          if (await pathExists(targetPath)) {
+            const targetStats = await fs.lstat(targetPath)
+
+            if (targetStats.isSymbolicLink()) {
+              const existingLink = await fs.readlink(targetPath)
+
+              if (existingLink === link) {
+                return
+              }
+            }
+
+            if (targetStats.isDirectory()) {
+              await fs.rm(targetPath, {recursive: true})
+            } else {
+              await fs.unlink(targetPath)
+            }
+          }
+
           await fs.symlink(link, targetPath)
         } else {
           if (this.verbose) console.log(`Copy ${sourcePath} to ${targetPath}`)

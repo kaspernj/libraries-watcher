@@ -411,6 +411,85 @@ describe("libraries-watcher", () => {
     }
   })
 
+  it("restarts watching when the source directory is recreated and re-syncs targets", async () => {
+    const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
+    const consoleLogSpy = spyOn(console, "log").and.callThrough()
+    const recreatedSourceFile = `${testDirSource}/recreated.txt`
+    const recreatedTargetFile = `${testDirTarget}/recreated.txt`
+
+    try {
+      await librariesWatcher.watch()
+      await fs.writeFile(sourceFilePath, "Before removal")
+
+      await waitFor(async () => {
+        if (!await fileExists(targetFilePath)) throw new Error("Target file doesnt exist")
+      })
+
+      await fs.rm(testDirSource, {recursive: true})
+
+      await waitFor(() => {
+        const stopped = consoleLogSpy.calls.allArgs().some(args => `${args[0]}`.includes("Stop watching") && `${args[0]}`.includes(testDirSource))
+        if (!stopped) throw new Error("Stop watching log missing")
+      })
+
+      await wait(100)
+      await fs.mkdir(testDirSource, {recursive: true})
+      await fs.writeFile(recreatedSourceFile, "After recreation")
+
+      await waitFor(() => {
+        const restarted = consoleLogSpy.calls.allArgs().some(args => `${args[0]}`.includes("Restart watching") && `${args[0]}`.includes(testDirSource))
+        if (!restarted) throw new Error("Restart watching log missing")
+      })
+
+      await waitFor(async () => {
+        if (!await fileExists(recreatedTargetFile)) throw new Error("Target file wasnt recreated")
+      })
+
+      await waitFor(async () => {
+        const fileContent = await fs.readFile(recreatedTargetFile, "utf8")
+
+        if (fileContent != "After recreation") {
+          throw new Error(`Unexpected file content: ${fileContent}`)
+        }
+      })
+    } finally {
+      await librariesWatcher.stopWatch()
+    }
+  })
+
+  it("cleans target when the source directory is removed and recreated", async () => {
+    const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
+    const staleSourceFile = `${testDirSource}/stale.txt`
+    const staleTargetFile = `${testDirTarget}/stale.txt`
+    const freshSourceFile = `${testDirSource}/fresh.txt`
+    const freshTargetFile = `${testDirTarget}/fresh.txt`
+
+    await fs.writeFile(staleSourceFile, "Stale")
+    await fs.writeFile(staleTargetFile, "Stale")
+
+    try {
+      await librariesWatcher.watch()
+      await fs.rm(testDirSource, {recursive: true})
+
+      await waitFor(async () => {
+        if (await fileExists(staleTargetFile)) throw new Error("Stale target file exists")
+      })
+
+      await fs.mkdir(testDirSource, {recursive: true})
+      await fs.writeFile(freshSourceFile, "Fresh")
+
+      await waitFor(async () => {
+        if (!await fileExists(freshTargetFile)) throw new Error("Fresh target file doesnt exist")
+      })
+
+      await waitFor(async () => {
+        if (await fileExists(staleTargetFile)) throw new Error("Stale target file exists")
+      })
+    } finally {
+      await librariesWatcher.stopWatch()
+    }
+  })
+
   it("ignores certain files", () => {
     expect(ignoreFile("/some/path/test.sqlite-journal")).toBeTrue()
     expect(ignoreFile("/some/path/test.js")).toBeFalse()
