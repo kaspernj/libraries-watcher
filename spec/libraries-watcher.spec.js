@@ -338,6 +338,51 @@ describe("libraries-watcher", () => {
     }
   })
 
+  it("prioritizes immediate events ahead of normal queue", async () => {
+    const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
+    const handled = []
+    const fakeStats = /** @type {import("fs").Stats} */ ({})
+    const fakeWatchedLibrary = /** @type {import("../src/watched-library.js").default} */ ({})
+
+    librariesWatcher.handleEvent = async (event) => {
+      handled.push(`${event.event}:${event.sourcePath}`)
+
+      if (event.sourcePath === "first") {
+        await librariesWatcher.callback({
+          event: "addDir",
+          isDirectory: true,
+          localPath: "dir",
+          sourcePath: "dir",
+          stats: fakeStats,
+          watchedLibrary: fakeWatchedLibrary
+        })
+      }
+    }
+
+    await librariesWatcher.callback({
+      event: "add",
+      isDirectory: false,
+      localPath: "first",
+      sourcePath: "first",
+      stats: fakeStats,
+      watchedLibrary: fakeWatchedLibrary
+    })
+    await librariesWatcher.callback({
+      event: "change",
+      isDirectory: false,
+      localPath: "second",
+      sourcePath: "second",
+      stats: fakeStats,
+      watchedLibrary: fakeWatchedLibrary
+    })
+
+    await waitFor(() => {
+      if (handled.length !== 3) throw new Error("Events not fully handled")
+    })
+
+    expect(handled).toEqual(["add:first", "addDir:dir", "change:second"])
+  })
+
   it("syncs deletion of dirs", async () => {
     const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
 
