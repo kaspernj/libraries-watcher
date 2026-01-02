@@ -338,6 +338,49 @@ describe("libraries-watcher", () => {
     }
   })
 
+  it("prioritizes immediate events ahead of normal queue", async () => {
+    const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
+    const handled = []
+
+    librariesWatcher.handleEvent = async (event) => {
+      handled.push(`${event.event}:${event.sourcePath}`)
+
+      if (event.sourcePath === "first") {
+        await librariesWatcher.callback({
+          event: "addDir",
+          isDirectory: true,
+          localPath: "dir",
+          sourcePath: "dir",
+          stats: {},
+          watchedLibrary: {}
+        })
+      }
+    }
+
+    await librariesWatcher.callback({
+      event: "add",
+      isDirectory: false,
+      localPath: "first",
+      sourcePath: "first",
+      stats: {},
+      watchedLibrary: {}
+    })
+    await librariesWatcher.callback({
+      event: "change",
+      isDirectory: false,
+      localPath: "second",
+      sourcePath: "second",
+      stats: {},
+      watchedLibrary: {}
+    })
+
+    await waitFor(() => {
+      if (handled.length !== 3) throw new Error("Events not fully handled")
+    })
+
+    expect(handled).toEqual(["add:first", "addDir:dir", "change:second"])
+  })
+
   it("syncs deletion of dirs", async () => {
     const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
 
