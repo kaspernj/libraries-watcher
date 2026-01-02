@@ -341,6 +341,8 @@ describe("libraries-watcher", () => {
   it("prioritizes immediate events ahead of normal queue", async () => {
     const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
     const handled = []
+    const fakeStats = /** @type {import("fs").Stats} */ ({})
+    const fakeWatchedLibrary = /** @type {import("../src/watched-library.js").default} */ ({})
 
     librariesWatcher.handleEvent = async (event) => {
       handled.push(`${event.event}:${event.sourcePath}`)
@@ -351,8 +353,8 @@ describe("libraries-watcher", () => {
           isDirectory: true,
           localPath: "dir",
           sourcePath: "dir",
-          stats: {},
-          watchedLibrary: {}
+          stats: fakeStats,
+          watchedLibrary: fakeWatchedLibrary
         })
       }
     }
@@ -362,16 +364,16 @@ describe("libraries-watcher", () => {
       isDirectory: false,
       localPath: "first",
       sourcePath: "first",
-      stats: {},
-      watchedLibrary: {}
+      stats: fakeStats,
+      watchedLibrary: fakeWatchedLibrary
     })
     await librariesWatcher.callback({
       event: "change",
       isDirectory: false,
       localPath: "second",
       sourcePath: "second",
-      stats: {},
-      watchedLibrary: {}
+      stats: fakeStats,
+      watchedLibrary: fakeWatchedLibrary
     })
 
     await waitFor(() => {
