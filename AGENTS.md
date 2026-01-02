@@ -7,3 +7,4 @@
 
 ## Tips
 - Use `npm run build` to produce the `build/` output if you need compiled artifacts.
+- Use `gh pr create` to open a PR from the current branch.

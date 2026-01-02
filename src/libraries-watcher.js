@@ -10,8 +10,9 @@ export default class LibrariesWatcher {
    * @param {object} args
    * @param {import("./types.js").LibraryObject[]} args.libraries
    * @param {boolean} [args.verbose]
+   * @param {string[]} [args.immediateEvents]
    */
-  constructor({libraries, verbose = false, ...restProps}) {
+  constructor({libraries, verbose = false, immediateEvents = ["addDir"], ...restProps}) {
     const restPropsKeys = Object.keys(restProps)
 
     if (restPropsKeys.length > 0) throw new Error(`Unknown properties: ${restPropsKeys}`)
@@ -19,9 +20,11 @@ export default class LibrariesWatcher {
 
     /** @type {import("./types.js").CallbackFunctionArgs[]} */
     this.events = []
+    this.immediateEventsQueue = []
     this.handlingEvents = false
     this.libraries = libraries
     this.verbose = verbose
+    this.immediateEvents = new Set(immediateEvents)
 
     /** @type {Array<WatchedLibrary>} */
     this.watchedLibraries = []
@@ -53,22 +56,39 @@ export default class LibrariesWatcher {
    * @returns {Promise<void>}
    */
   callback = async (event) => {
-    this.events.push(event)
-    this.handleEvents()
+    this.enqueueEvent(event)
   }
 
   async handleEvents() {
     try {
+      if (this.handlingEvents) return
       this.handlingEvents = true
 
-      while (this.events.length > 0) {
-        const event = this.events.shift()
+      while (this.immediateEventsQueue.length > 0 || this.events.length > 0) {
+        const event = this.immediateEventsQueue.shift() ?? this.events.shift()
 
-        await this.handleEvent(event)
+        if (event) {
+          await this.handleEvent(event)
+        }
       }
     } finally {
       this.handlingEvents = false
+      if (this.immediateEventsQueue.length > 0 || this.events.length > 0) this.handleEvents()
     }
+  }
+
+  /**
+   * @param {import("./types.js").CallbackFunctionArgs} event
+   * @returns {void}
+   */
+  enqueueEvent(event) {
+    if (this.immediateEvents.has(event.event)) {
+      this.immediateEventsQueue.push(event)
+    } else {
+      this.events.push(event)
+    }
+
+    this.handleEvents()
   }
 
   /**
