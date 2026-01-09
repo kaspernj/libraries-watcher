@@ -144,7 +144,22 @@ export default class LibrariesWatcher {
           if (this.verbose) console.log(`Making symlink here ${targetPath} with link: ${link}`)
 
           if (await pathExists(targetPath)) {
-            const targetStats = await fs.lstat(targetPath)
+            let targetStats
+
+            try {
+              targetStats = await fs.lstat(targetPath)
+            } catch (error) {
+              if (error instanceof Error && error.message.startsWith("ENOENT: ")) {
+                targetStats = null
+              } else {
+                throw error
+              }
+            }
+
+            if (!targetStats) {
+              await fs.symlink(link, targetPath)
+              return
+            }
 
             if (targetStats.isSymbolicLink()) {
               const existingLink = await fs.readlink(targetPath)
