@@ -372,26 +372,6 @@ describe("libraries-watcher", () => {
     }
   })
 
-  it("avoids duplicate directory watchers for nested folders", async () => {
-    const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
-
-    try {
-      await librariesWatcher.watch()
-      await fs.mkdir(`${testDirSource}/dedupe/inner`, {recursive: true})
-
-      await waitFor(() => {
-        const watchedLibrary = librariesWatcher.watchedLibraries[0]
-
-        if (!watchedLibrary) throw new Error("No watched library")
-        if (watchedLibrary.directoryListeners.size !== 3) {
-          throw new Error(`Unexpected watcher count: ${watchedLibrary.directoryListeners.size}`)
-        }
-      })
-    } finally {
-      await librariesWatcher.stopWatch()
-    }
-  })
-
   it("prioritizes immediate events ahead of normal queue", async () => {
     const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
     const handled = []

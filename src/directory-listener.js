@@ -12,7 +12,6 @@ export default class DirectoryListener {
    * @param {string} args.localPath
    * @param {boolean} args.verbose
    * @param {import("./watched-library.js").default} args.watchedLibrary
-   * @param {boolean} [args.restartOnRemove]
    * @param {string} [args.watchFor]
    */
   constructor(args) {
@@ -22,7 +21,6 @@ export default class DirectoryListener {
       localPath,
       verbose,
       watchedLibrary,
-      restartOnRemove = true,
       watchFor,
       ...restProps
     } = args
@@ -39,7 +37,6 @@ export default class DirectoryListener {
     this.sourcePath = sourcePath
     this.shouldKeepWatching = true
     this.restartingPromise = null
-    this.restartOnRemove = restartOnRemove
     this.tempData = {}
     this.verbose = verbose
     this.watchedLibrary = watchedLibrary
@@ -58,11 +55,7 @@ export default class DirectoryListener {
       this.watchResolve = resolve
       this.watchReject = reject
 
-      this.watcher = chokidar.watch(this.sourcePath, {
-        alwaysStat: true,
-        depth: 0,
-        ignored: this.ignored
-      })
+      this.watcher = chokidar.watch(this.sourcePath, {alwaysStat: true, ignored: this.ignored})
       this.watcher.on("ready", this.onChokidarReady)
       this.watcher.on("error", this.onChokidarError)
       this.watcher.on("all", this.onChokidarEvent)
@@ -275,9 +268,7 @@ export default class DirectoryListener {
         stats,
         watchedLibrary: this.watchedLibrary
       })
-      if (this.restartOnRemove) {
-        await this.restartWatcherAfterRecreation()
-      }
+      await this.restartWatcherAfterRecreation()
       return
     }
 
