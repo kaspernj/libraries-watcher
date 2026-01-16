@@ -191,6 +191,13 @@ export default class LibrariesWatcher {
           }
         }
       } else if (event == "addDir") {
+        await watchedLibrary.watchDirectoryTree({
+          localPath,
+          processInitialEvents: true,
+          restartOnRemove: false,
+          sourcePath
+        })
+
         if (this.verbose) console.log(`Create dir ${targetPath}`)
 
         const dirName = path.dirname(targetPath)
@@ -289,6 +296,8 @@ export default class LibrariesWatcher {
           }
         }
       } else if (event == "unlinkDir") {
+        await watchedLibrary.stopWatchingDirectoryTree(sourcePath)
+
         if (this.verbose) console.log(`Path ${localPath} was deleted`)
 
         if (await pathExists(targetPath)) {
