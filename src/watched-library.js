@@ -38,8 +38,7 @@ export default class WatchedLibrary {
   }
 
   /**
-   * @param {object} args
-   * @param {string} args.fileName
+   * @param {import("./types.js").IgnoreFunctionArgs} args
    * @returns {boolean}
    */
   shouldIgnore = ({fileName}) => {

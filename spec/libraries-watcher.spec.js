@@ -11,9 +11,11 @@ const __dirname = path.dirname(__filename) // get the name of the directory
 const rootPath = await fs.realpath(`${__dirname}/..`)
 
 await fs.mkdir(`${rootPath}/spec/support/test-dir/source`, {recursive: true})
+await fs.mkdir(`${rootPath}/spec/support/test-dir/staging`, {recursive: true})
 await fs.mkdir(`${rootPath}/spec/support/test-dir/target`, {recursive: true})
 
 const testDirSource = await fs.realpath(`${rootPath}/spec/support/test-dir/source`)
+const testDirStaging = await fs.realpath(`${rootPath}/spec/support/test-dir/staging`)
 const testDirTarget = await fs.realpath(`${rootPath}/spec/support/test-dir/target`)
 const sourceFilePath = `${testDirSource}/test.txt`
 const targetFilePath = `${testDirTarget}/test.txt`
@@ -60,11 +62,13 @@ async function fileExists(fullPath) {
 describe("libraries-watcher", () => {
   beforeEach(async () => {
     await cleanDir(testDirSource)
+    await cleanDir(testDirStaging)
     await cleanDir(testDirTarget)
   })
 
   afterEach(async () => {
     await cleanDir(testDirSource)
+    await cleanDir(testDirStaging)
     await cleanDir(testDirTarget)
   })
 
@@ -332,6 +336,36 @@ describe("libraries-watcher", () => {
 
       await waitFor(async () => {
         if (!await fileExists(targetDirPath)) throw new Error("Target file doesnt exist")
+      })
+    } finally {
+      await librariesWatcher.stopWatch()
+    }
+  })
+
+  it("syncs existing sub-folders when a directory is moved in", async () => {
+    const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
+    const stagedDirPath = `${testDirStaging}/incoming/alpha/beta`
+    const stagedFilePath = `${stagedDirPath}/moved.txt`
+    const movedDirPath = `${testDirSource}/incoming`
+    const movedTargetFilePath = `${testDirTarget}/incoming/alpha/beta/moved.txt`
+
+    await fs.mkdir(stagedDirPath, {recursive: true})
+    await fs.writeFile(stagedFilePath, "Moved content")
+
+    try {
+      await librariesWatcher.watch()
+      await fs.rename(`${testDirStaging}/incoming`, movedDirPath)
+
+      await waitFor(async () => {
+        if (!await fileExists(movedTargetFilePath)) throw new Error("Target file doesnt exist")
+      })
+
+      await waitFor(async () => {
+        const fileContent = await fs.readFile(movedTargetFilePath, "utf8")
+
+        if (fileContent != "Moved content") {
+          throw new Error(`Unexpected file content: ${fileContent}`)
+        }
       })
     } finally {
       await librariesWatcher.stopWatch()

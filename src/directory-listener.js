@@ -15,7 +15,15 @@ export default class DirectoryListener {
    * @param {string} [args.watchFor]
    */
   constructor(args) {
-    const {sourcePath, ignore, localPath, verbose, watchedLibrary, watchFor, ...restProps} = args
+    const {
+      sourcePath,
+      ignore,
+      localPath,
+      verbose,
+      watchedLibrary,
+      watchFor,
+      ...restProps
+    } = args
     const restPropsKeys = Object.keys(restProps)
 
     if (restPropsKeys.length > 0) throw new Error(`${restPropsKeys} are not supported`)
@@ -87,8 +95,8 @@ export default class DirectoryListener {
       }
 
       if (!lstats.isSymbolicLink() && lstats.isDirectory() && details.watchedPath.endsWith(eventPath)) {
-        const name = sourcePath.substring(this.sourcePath.length + 1, sourcePath.length)
-        const localPath = `${this.localPath}/${name}`
+        const name = nodePath.relative(this.sourcePath, sourcePath)
+        const localPath = name ? nodePath.join(this.localPath, name) : this.localPath
 
         // This happens when chmod'ing a directory
         this.librariesWatcher.callback({
@@ -136,11 +144,11 @@ export default class DirectoryListener {
    * @returns {boolean}
    */
   ignored = (fullPath) => {
-    const fileName = fullPath.substring(this.sourcePath.length + 1, fullPath.length)
+    const fileName = nodePath.relative(this.sourcePath, fullPath)
 
     if (fileName == "") return false
 
-    const localPath = `${this.localPath}/${fileName}`
+    const localPath = nodePath.join(this.localPath, fileName)
 
     let shouldIgnore = false
 
@@ -235,9 +243,9 @@ export default class DirectoryListener {
   onChokidarEvent = async (event, fullPath, stats) => {
     if (this.initial && !this.processInitialEvents) return
 
-    const name = fullPath.substring(this.sourcePath.length + 1, fullPath.length)
-    const sourcePath = `${this.sourcePath}/${name}`
-    const localPath = `${this.localPath}/${name}`
+    const name = nodePath.relative(this.sourcePath, fullPath)
+    const sourcePath = name ? nodePath.join(this.sourcePath, name) : this.sourcePath
+    const localPath = name ? nodePath.join(this.localPath, name) : this.localPath
 
     let isDirectory
 

@@ -227,6 +227,8 @@ export default class LibrariesWatcher {
           await fs.chown(targetPath, lstat.uid, lstat.gid)
           await fs.chmod(targetPath, lstat.mode)
         }
+
+        await this.syncDirectoryContents({localPath, sourcePath, watchedLibrary})
       } else if (event == "change") {
         if (this.verbose) console.log(`Copy ${sourcePath} to ${targetPath}`)
 
@@ -299,6 +301,56 @@ export default class LibrariesWatcher {
       } else {
         if (this.verbose) console.log(`${localPath} ${event} unknown!`)
       }
+    }
+  }
+
+  /**
+   * @param {object} args
+   * @param {string} args.sourcePath
+   * @param {string} args.localPath
+   * @param {import("./watched-library.js").default} args.watchedLibrary
+   * @returns {Promise<void>}
+   */
+  async syncDirectoryContents({sourcePath, localPath, watchedLibrary}) {
+    let dirEntries
+
+    try {
+      dirEntries = await fs.readdir(sourcePath, {withFileTypes: true})
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("ENOENT: ")) {
+        return
+      }
+
+      throw error
+    }
+
+    for (const dirEntry of dirEntries) {
+      const fileName = dirEntry.name
+      const fullPath = path.join(sourcePath, fileName)
+
+      if (ignoreFile(fullPath)) continue
+
+      const childLocalPath = path.join(localPath, fileName)
+      let stats
+
+      try {
+        stats = await fs.lstat(fullPath)
+      } catch (error) {
+        if (error instanceof Error && error.message.startsWith("ENOENT: ")) {
+          continue
+        }
+
+        throw error
+      }
+
+      await this.handleEvent({
+        event: stats.isDirectory() ? "addDir" : "add",
+        isDirectory: stats.isDirectory(),
+        localPath: childLocalPath,
+        sourcePath: fullPath,
+        stats,
+        watchedLibrary
+      })
     }
   }
 }
