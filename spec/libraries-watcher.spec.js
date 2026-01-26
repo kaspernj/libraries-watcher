@@ -103,6 +103,39 @@ describe("libraries-watcher", () => {
     }
   })
 
+  it("avoids recursive copies when destination is nested in source", async () => {
+    const nestedTargetDir = `${testDirSource}/nested-target`
+    const nestedTargetFile = `${nestedTargetDir}/test.txt`
+    const nestedRecursiveFile = `${nestedTargetDir}/nested-target/test.txt`
+    const nestedConfig = [
+      {
+        name: "nested",
+        source: testDirSource,
+        destinations: [nestedTargetDir]
+      }
+    ]
+    const librariesWatcher = new LibrariesWatcher({libraries: nestedConfig, verbose: false})
+
+    await fs.mkdir(nestedTargetDir, {recursive: true})
+
+    try {
+      await librariesWatcher.watch()
+      await fs.writeFile(sourceFilePath, "Test")
+
+      await waitFor(async () => {
+        if (!await fileExists(nestedTargetFile)) throw new Error("Nested target file doesnt exist")
+      })
+
+      await wait(300)
+
+      const recursiveExists = await fileExists(nestedRecursiveFile)
+
+      expect(recursiveExists).toBeFalse()
+    } finally {
+      await librariesWatcher.stopWatch()
+    }
+  })
+
   it("syncs creation of files in sub-folders", async () => {
     const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
 
