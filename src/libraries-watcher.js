@@ -102,6 +102,10 @@ export default class LibrariesWatcher {
     }
 
     if (!watchedLibrary) throw new Error("'watchedLibrary' not given")
+    if (watchedLibrary.isPathUnderDestination(localPath)) {
+      if (this.verbose) console.log(`Ignoring ${event} within destination: ${sourcePath}`)
+      return
+    }
 
     for (const destination of watchedLibrary.library.destinations) {
       const targetPath = `${destination}/${localPath}`

@@ -1,4 +1,5 @@
 import DirectoryListener from "./directory-listener.js"
+import path from "path"
 
 export default class WatchedLibrary {
   /**
@@ -17,6 +18,7 @@ export default class WatchedLibrary {
     this.library = library
     this.librariesWatcher = librariesWatcher
     this.verbose = verbose
+    this.destinationLocalPaths = this.getDestinationLocalPaths()
 
     this.liraryListener = new DirectoryListener({
       localPath: "",
@@ -47,5 +49,34 @@ export default class WatchedLibrary {
     }
 
     return false
+  }
+
+  /**
+   * @param {string} localPath
+   * @returns {boolean}
+   */
+  isPathUnderDestination = (localPath) => {
+    for (const destinationLocalPath of this.destinationLocalPaths) {
+      if (destinationLocalPath === "") return true
+
+      if (localPath === destinationLocalPath || localPath.startsWith(`${destinationLocalPath}${path.sep}`)) {
+        return true
+      }
+    }
+
+    return false
+  }
+
+  /** @returns {string[]} */
+  getDestinationLocalPaths() {
+    return this.library.destinations.reduce((paths, destination) => {
+      const relativePath = path.relative(this.library.source, destination)
+
+      if (relativePath === "" || (!relativePath.startsWith("..") && !path.isAbsolute(relativePath))) {
+        paths.push(relativePath)
+      }
+
+      return paths
+    }, [])
   }
 }
