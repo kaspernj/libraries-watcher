@@ -51,6 +51,8 @@ export default class DirectoryListener {
     this.active = false
     this.processInitialEvents = processInitialEvents
 
+    if (this.verbose) console.log(`Start watching ${this.sourcePath}`)
+
     return new Promise((resolve, reject) => {
       this.watchResolve = resolve
       this.watchReject = reject

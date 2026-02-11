@@ -523,6 +523,22 @@ describe("libraries-watcher", () => {
     }
   })
 
+  it("logs each watched folder when verbose is enabled", async () => {
+    const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: true})
+    const consoleLogSpy = spyOn(console, "log").and.callThrough()
+
+    try {
+      await librariesWatcher.watch()
+
+      const startLogs = consoleLogSpy.calls.allArgs().filter(args => `${args[0]}`.includes("Start watching"))
+
+      expect(startLogs.length).toBe(1)
+      expect(`${startLogs[0][0]}`).toContain(testDirSource)
+    } finally {
+      await librariesWatcher.stopWatch()
+    }
+  })
+
   it("restarts watching when the source directory is recreated and re-syncs targets", async () => {
     const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
     const consoleLogSpy = spyOn(console, "log").and.callThrough()
