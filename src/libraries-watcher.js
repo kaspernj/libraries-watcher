@@ -2,7 +2,6 @@ import fs from "fs/promises"
 import ignoreFile from "./ignore-file.js"
 import path from "path"
 import pathExists from "./path-exists.js"
-import retry from "awaitery/build/retry.js"
 import WatchedLibrary from "./watched-library.js"
 
 export default class LibrariesWatcher {
@@ -297,10 +296,17 @@ export default class LibrariesWatcher {
       } else if (event == "unlinkDir") {
         if (this.verbose) console.log(`Path ${localPath} was deleted`)
 
-        if (await pathExists(targetPath)) {
-          await retry(async () => {
-            await fs.rm(targetPath, {recursive: true})
+        try {
+          await fs.rm(targetPath, {
+            force: true,
+            recursive: true
           })
+        } catch (error) {
+          if (error instanceof Error && error.message.startsWith("ENOTEMPTY: ")) {
+            if (this.verbose) console.error(`Couldn't delete directory - raced with filesystem changes: ${error.message}`)
+          } else {
+            throw error
+          }
         }
       } else {
         if (this.verbose) console.log(`${localPath} ${event} unknown!`)

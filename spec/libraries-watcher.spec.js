@@ -467,6 +467,39 @@ describe("libraries-watcher", () => {
     }
   })
 
+  it("does not throw when unlinkDir hits ENOTEMPTY", async () => {
+    const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
+    const targetPath = `${testDirTarget}/transient-dir`
+    const originalRm = fs.rm.bind(fs)
+    const watchedLibrary = /** @type {any} */ ({
+      isPathUnderDestination: () => false,
+      library: {
+        destinations: [testDirTarget]
+      }
+    })
+    const enotemptyError = new Error("ENOTEMPTY: directory not empty, rmdir '/tmp/test'")
+    let threwEnotempty = false
+
+    spyOn(fs, "rm").and.callFake(async (fullPath, ...args) => {
+      if (fullPath === targetPath && !threwEnotempty) {
+        threwEnotempty = true
+        throw enotemptyError
+      }
+      return await originalRm(fullPath, ...args)
+    })
+
+    await fs.mkdir(targetPath, {recursive: true})
+
+    await expectAsync(librariesWatcher.handleEvent({
+      event: "unlinkDir",
+      isDirectory: true,
+      localPath: "transient-dir",
+      sourcePath: `${testDirSource}/transient-dir`,
+      stats: null,
+      watchedLibrary
+    })).toBeResolved()
+  })
+
   it("syncs recursive creation and deletion", async () => {
     const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
 
