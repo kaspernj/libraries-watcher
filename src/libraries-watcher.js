@@ -296,20 +296,18 @@ export default class LibrariesWatcher {
       } else if (event == "unlinkDir") {
         if (this.verbose) console.log(`Path ${localPath} was deleted`)
 
-        if (await pathExists(targetPath)) {
-          try {
-            await fs.rm(targetPath, {
-              force: true,
-              maxRetries: 5,
-              recursive: true,
-              retryDelay: 100
-            })
-          } catch (error) {
-            if (error instanceof Error && (error.message.startsWith("ENOENT: ") || error.message.startsWith("ENOTEMPTY: "))) {
-              if (this.verbose) console.error(`Couldn't delete directory - raced with filesystem changes: ${error.message}`)
-            } else {
-              throw error
-            }
+        try {
+          await fs.rm(targetPath, {
+            force: true,
+            maxRetries: 5,
+            recursive: true,
+            retryDelay: 100
+          })
+        } catch (error) {
+          if (error instanceof Error && error.message.startsWith("ENOTEMPTY: ")) {
+            if (this.verbose) console.error(`Couldn't delete directory - raced with filesystem changes: ${error.message}`)
+          } else {
+            throw error
           }
         }
       } else {
