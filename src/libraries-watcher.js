@@ -299,9 +299,7 @@ export default class LibrariesWatcher {
         try {
           await fs.rm(targetPath, {
             force: true,
-            maxRetries: 5,
-            recursive: true,
-            retryDelay: 100
+            recursive: true
           })
         } catch (error) {
           if (error instanceof Error && error.message.startsWith("ENOTEMPTY: ")) {
