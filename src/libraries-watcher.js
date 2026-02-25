@@ -20,10 +20,13 @@ export default class LibrariesWatcher {
     /** @type {import("./types.js").CallbackFunctionArgs[]} */
     this.events = []
     this.immediateEventsQueue = []
+    this.queuedEvents = new Set()
     this.handlingEvents = false
     this.libraries = libraries
     this.verbose = verbose
     this.immediateEvents = new Set(immediateEvents)
+    this.watchedLibraryIds = new WeakMap()
+    this.nextWatchedLibraryId = 1
 
     /** @type {Array<WatchedLibrary>} */
     this.watchedLibraries = []
@@ -68,6 +71,7 @@ export default class LibrariesWatcher {
         const event = this.immediateEventsQueue.shift() ?? this.events.shift()
 
         if (event) {
+          this.queuedEvents.delete(this.getQueueKey(event))
           await this.handleEvent(event)
         }
       }
@@ -82,6 +86,14 @@ export default class LibrariesWatcher {
    * @returns {void}
    */
   enqueueEvent(event) {
+    const queueKey = this.getQueueKey(event)
+
+    if (this.queuedEvents.has(queueKey)) {
+      return
+    }
+
+    this.queuedEvents.add(queueKey)
+
     if (this.immediateEvents.has(event.event)) {
       this.immediateEventsQueue.push(event)
     } else {
@@ -189,7 +201,6 @@ export default class LibrariesWatcher {
           })
 
           if (!shouldSyncFile) {
-            if (this.verbose) console.log(`Skip copy ${sourcePath} to ${targetPath} - file size, mode and mtime match`)
             continue
           }
 
@@ -210,8 +221,6 @@ export default class LibrariesWatcher {
           }
         }
       } else if (event == "addDir") {
-        if (this.verbose) console.log(`Create dir ${targetPath}`)
-
         const dirName = path.dirname(targetPath)
 
         if (!await pathExists(dirName)) {
@@ -220,6 +229,8 @@ export default class LibrariesWatcher {
         }
 
         if (!await pathExists(targetPath)) {
+          if (this.verbose) console.log(`Create dir ${targetPath}`)
+
           let lstat
 
           try{
@@ -282,7 +293,6 @@ export default class LibrariesWatcher {
           })
 
           if (!shouldSyncFile) {
-            if (this.verbose) console.log(`Skip copy ${sourcePath} to ${targetPath} - file size, mode and mtime match`)
             continue
           }
 
@@ -472,5 +482,32 @@ export default class LibrariesWatcher {
     }
 
     return !targetMatchesSource
+  }
+
+  /**
+   * @param {import("./types.js").CallbackFunctionArgs} event
+   * @returns {string}
+   */
+  getQueueKey(event) {
+    const watchedLibraryId = this.getWatchedLibraryId(event.watchedLibrary)
+    return `${watchedLibraryId}:${event.event}:${event.localPath}`
+  }
+
+  /**
+   * @param {import("./watched-library.js").default} watchedLibrary
+   * @returns {number}
+   */
+  getWatchedLibraryId(watchedLibrary) {
+    if (!this.watchedLibraryIds.has(watchedLibrary)) {
+      this.watchedLibraryIds.set(watchedLibrary, this.nextWatchedLibraryId++)
+    }
+
+    const watchedLibraryId = this.watchedLibraryIds.get(watchedLibrary)
+
+    if (!watchedLibraryId) {
+      throw new Error("Could not resolve watched library ID")
+    }
+
+    return watchedLibraryId
   }
 }
