@@ -58,6 +58,7 @@ export default class LibrariesWatcher {
     this.enqueueEvent(event)
   }
 
+  /** @returns {Promise<void>} */
   async handleEvents() {
     try {
       if (this.handlingEvents) return
@@ -181,10 +182,25 @@ export default class LibrariesWatcher {
 
           await fs.symlink(link, targetPath)
         } else {
+          const shouldSyncFile = await this.shouldSyncFile({
+            sourcePath,
+            sourceStats: lstats,
+            targetPath
+          })
+
+          if (!shouldSyncFile) {
+            if (this.verbose) console.log(`Skip copy ${sourcePath} to ${targetPath} - file size, mode and mtime match`)
+            continue
+          }
+
           if (this.verbose) console.log(`Copy ${sourcePath} to ${targetPath}`)
 
           try {
-            await fs.copyFile(sourcePath, targetPath, fs.constants.COPYFILE_FICLONE)
+            await this.copyFileAndSyncMetadata({
+              sourcePath,
+              sourceStats: lstats,
+              targetPath
+            })
           } catch (error) {
             if (error instanceof Error && error.message.startsWith("ENOENT: ")) {
               console.error(`Couldn't copy ${sourcePath} to ${targetPath} - file has been deleted: ${error.message}`)
@@ -246,9 +262,36 @@ export default class LibrariesWatcher {
         if (isDirectory) {
           // FIXME: What was changed? Should we sync something?
         } else if (!isDirectory) {
-          // FIXME: We should only copy entire file, if the content was changed. Can we detect if the contents was changed? Maybe only props were changed?
+          let sourceStats
+
           try {
-            await await fs.copyFile(sourcePath, targetPath, fs.constants.COPYFILE_FICLONE)
+            sourceStats = await fs.lstat(sourcePath)
+          } catch (error) {
+            if (error instanceof Error && error.message.startsWith("ENOENT: ")) {
+              console.error(`Couldn't copy ${sourcePath} to ${targetPath} - source file has been deleted: ${error.message}`)
+              continue
+            } else {
+              throw error
+            }
+          }
+
+          const shouldSyncFile = await this.shouldSyncFile({
+            sourcePath,
+            sourceStats,
+            targetPath
+          })
+
+          if (!shouldSyncFile) {
+            if (this.verbose) console.log(`Skip copy ${sourcePath} to ${targetPath} - file size, mode and mtime match`)
+            continue
+          }
+
+          try {
+            await this.copyFileAndSyncMetadata({
+              sourcePath,
+              sourceStats,
+              targetPath
+            })
           } catch (error) {
             console.error(`Couldn't copy file file: ${error instanceof Error ? error.message : error}`)
           }
@@ -362,5 +405,72 @@ export default class LibrariesWatcher {
         watchedLibrary
       })
     }
+  }
+
+  /**
+   * @param {object} args
+   * @param {string} args.sourcePath
+   * @param {import("fs").Stats} args.sourceStats
+   * @param {string} args.targetPath
+   * @returns {Promise<void>}
+   */
+  async copyFileAndSyncMetadata({sourcePath, sourceStats, targetPath}) {
+    await fs.copyFile(sourcePath, targetPath, fs.constants.COPYFILE_FICLONE)
+    await fs.chmod(targetPath, sourceStats.mode)
+    await fs.utimes(targetPath, sourceStats.atime, sourceStats.mtime)
+  }
+
+  /**
+   * @param {object} args
+   * @param {string} args.sourcePath
+   * @param {import("fs").Stats} args.sourceStats
+   * @param {string} args.targetPath
+   * @returns {Promise<boolean>}
+   */
+  async shouldSyncFile({sourcePath, sourceStats, targetPath}) {
+    if (!sourceStats.isFile()) {
+      return true
+    }
+
+    if (!await pathExists(targetPath)) {
+      return true
+    }
+
+    let targetStats
+
+    try {
+      targetStats = await fs.lstat(targetPath)
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("ENOENT: ")) {
+        return true
+      } else {
+        throw error
+      }
+    }
+
+    if (!targetStats.isFile()) {
+      return true
+    }
+
+    const sourceMtime = sourceStats.mtimeMs
+    const targetMtime = targetStats.mtimeMs
+    const mtimeDifference = Math.abs(sourceMtime - targetMtime)
+    const targetMatchesSource = sourceStats.size === targetStats.size
+      && mtimeDifference <= 1
+      && sourceStats.mode === targetStats.mode
+
+    if (!targetMatchesSource && this.verbose) {
+      console.log(`Sync ${sourcePath} - metadata changed`, {
+        mtimeDifference,
+        sourceMode: sourceStats.mode,
+        sourceMtime,
+        sourceSize: sourceStats.size,
+        targetMode: targetStats.mode,
+        targetMtime,
+        targetSize: targetStats.size
+      })
+    }
+
+    return !targetMatchesSource
   }
 }

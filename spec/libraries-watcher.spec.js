@@ -103,6 +103,71 @@ describe("libraries-watcher", () => {
     }
   })
 
+  it("syncs file mtime from source to target", async () => {
+    const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
+
+    try {
+      await librariesWatcher.watch()
+      await fs.writeFile(sourceFilePath, "Test")
+
+      await waitFor(async () => {
+        if (!await fileExists(targetFilePath)) throw new Error("Target file doesnt exist")
+      })
+
+      await waitFor(async () => {
+        const sourceStats = await fs.stat(sourceFilePath)
+        const targetStats = await fs.stat(targetFilePath)
+
+        if (Math.abs(sourceStats.mtimeMs - targetStats.mtimeMs) > 1) {
+          throw new Error(`Mtimes do not match: ${sourceStats.mtimeMs} != ${targetStats.mtimeMs}`)
+        }
+      })
+
+      await fs.writeFile(sourceFilePath, "Test change to force copy")
+
+      await waitFor(async () => {
+        const sourceStats = await fs.stat(sourceFilePath)
+        const targetStats = await fs.stat(targetFilePath)
+
+        if (Math.abs(sourceStats.mtimeMs - targetStats.mtimeMs) > 1) {
+          throw new Error(`Mtimes do not match after change: ${sourceStats.mtimeMs} != ${targetStats.mtimeMs}`)
+        }
+      })
+    } finally {
+      await librariesWatcher.stopWatch()
+    }
+  })
+
+  it("skips copying unchanged files on change events", async () => {
+    const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
+    const watchedLibrary = /** @type {any} */ ({
+      isPathUnderDestination: () => false,
+      library: {
+        destinations: [testDirTarget]
+      }
+    })
+    const syncMtime = new Date("2024-01-02T00:00:00.000Z")
+
+    await fs.writeFile(sourceFilePath, "Same content")
+    await fs.writeFile(targetFilePath, "Same content")
+    await fs.utimes(sourceFilePath, syncMtime, syncMtime)
+    await fs.utimes(targetFilePath, syncMtime, syncMtime)
+
+    const copyFileSpy = spyOn(fs, "copyFile").and.callThrough()
+    const sourceStats = await fs.lstat(sourceFilePath)
+
+    await librariesWatcher.handleEvent({
+      event: "change",
+      isDirectory: false,
+      localPath: "test.txt",
+      sourcePath: sourceFilePath,
+      stats: sourceStats,
+      watchedLibrary
+    })
+
+    expect(copyFileSpy).not.toHaveBeenCalled()
+  })
+
   it("avoids recursive copies when destination is nested in source", async () => {
     const nestedTargetDir = `${testDirSource}/nested-target`
     const nestedTargetFile = `${nestedTargetDir}/test.txt`
