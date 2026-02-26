@@ -112,7 +112,7 @@ export default class DirectoryListener {
       } else {
         const mappedEvent = lstats.isDirectory() ? "addDir" : "add"
 
-        await this.onChokidarEvent(mappedEvent, sourcePath, lstats)
+        await this.onChokidarEvent(mappedEvent, sourcePath, lstats, {fromRawRename: true})
       }
     }
   }
@@ -240,9 +240,11 @@ export default class DirectoryListener {
    * @param {import("chokidar/handler.js").EventName} event
    * @param {string} fullPath
    * @param {import("fs").Stats} stats
+   * @param {object} [options]
+   * @param {boolean} [options.fromRawRename=false]
    * @returns {Promise<void>}
    */
-  onChokidarEvent = async (event, fullPath, stats) => {
+  onChokidarEvent = async (event, fullPath, stats, {fromRawRename = false} = {}) => {
     if (this.initial && !this.processInitialEvents) return
 
     const name = nodePath.relative(this.sourcePath, fullPath)
@@ -266,6 +268,7 @@ export default class DirectoryListener {
         event,
         isDirectory,
         localPath,
+        moved: false,
         sourcePath,
         stats,
         watchedLibrary: this.watchedLibrary
@@ -278,6 +281,7 @@ export default class DirectoryListener {
       event,
       isDirectory,
       localPath,
+      moved: fromRawRename && event == "addDir",
       sourcePath,
       stats,
       watchedLibrary: this.watchedLibrary

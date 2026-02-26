@@ -27,8 +27,6 @@ export default class LibrariesWatcher {
     this.immediateEvents = new Set(immediateEvents)
     this.watchedLibraryIds = new WeakMap()
     this.nextWatchedLibraryId = 1
-    this.directorySyncTimestamps = new Map()
-    this.directorySyncDebounceMs = 1000
 
     /** @type {Array<WatchedLibrary>} */
     this.watchedLibraries = []
@@ -109,7 +107,7 @@ export default class LibrariesWatcher {
    * @param {import("./types.js").CallbackFunctionArgs} event
    * @returns {Promise<void>}
    */
-  async handleEvent({event, isDirectory, localPath, sourcePath, stats, watchedLibrary}) {
+  async handleEvent({event, isDirectory, localPath, moved = false, sourcePath, stats, watchedLibrary}) {
     if (ignoreFile(sourcePath)) {
       if (this.verbose) console.log(`Ignoring ${event} on ${sourcePath}`)
       return
@@ -264,7 +262,7 @@ export default class LibrariesWatcher {
           shouldSyncDirectoryContents = true
         }
 
-        if (targetPathExists && this.shouldSyncExistingDirectoryContents({localPath, watchedLibrary})) {
+        if (targetPathExists && moved) {
           shouldSyncDirectoryContents = true
         }
 
@@ -521,25 +519,5 @@ export default class LibrariesWatcher {
     }
 
     return watchedLibraryId
-  }
-
-  /**
-   * @param {object} args
-   * @param {string} args.localPath
-   * @param {import("./watched-library.js").default} args.watchedLibrary
-   * @returns {boolean}
-   */
-  shouldSyncExistingDirectoryContents({localPath, watchedLibrary}) {
-    const syncKey = `${this.getWatchedLibraryId(watchedLibrary)}:${localPath}`
-    const now = Date.now()
-    const lastSyncAt = this.directorySyncTimestamps.get(syncKey)
-
-    if (lastSyncAt && now - lastSyncAt < this.directorySyncDebounceMs) {
-      return false
-    }
-
-    this.directorySyncTimestamps.set(syncKey, now)
-
-    return true
   }
 }

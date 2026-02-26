@@ -9,4 +9,4 @@
 - De-duplicate queued filesystem events per watched library/path/event to reduce repeated processing bursts.
 - Reduce verbose logging noise by not logging every unchanged-file skip.
 - Ignore nested `node_modules` and dot-prefixed path segments at any depth to reduce unnecessary watcher churn.
-- Avoid repeated recursive directory sync scans on duplicate `addDir` events when destination directories already exist.
+- For existing target directories, recursively sync on move-like `addDir` events and skip plain duplicate `addDir` events.
