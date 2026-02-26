@@ -259,7 +259,7 @@ export default class LibrariesWatcher {
 
           await fs.chown(targetPath, lstat.uid, lstat.gid)
           await fs.chmod(targetPath, lstat.mode)
-          shouldSyncDirectoryContents = true
+          shouldSyncDirectoryContents = !moved
         }
 
         if (targetPathExists && moved) {

@@ -10,3 +10,4 @@
 - Reduce verbose logging noise by not logging every unchanged-file skip.
 - Ignore nested `node_modules` and dot-prefixed path segments at any depth to reduce unnecessary watcher churn.
 - For existing target directories, recursively sync on move-like `addDir` events and skip plain duplicate `addDir` events.
+- For move-like `addDir` into missing target directories, create destination dirs without recursive full sync.

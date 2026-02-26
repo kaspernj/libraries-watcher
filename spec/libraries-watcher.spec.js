@@ -573,6 +573,40 @@ describe("libraries-watcher", () => {
     }
   })
 
+  it("does not recursively sync moved addDir when target dir is newly created", async () => {
+    const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
+    const sourceMovedDir = `${testDirSource}/moved-new-target`
+    const sourceMovedChild = `${sourceMovedDir}/child.txt`
+    const targetMovedDir = `${testDirTarget}/moved-new-target`
+    const targetMovedChild = `${targetMovedDir}/child.txt`
+
+    await fs.mkdir(sourceMovedDir, {recursive: true})
+    await fs.writeFile(sourceMovedChild, "Source child moved new target")
+
+    try {
+      await librariesWatcher.watch()
+
+      await librariesWatcher.handleEvent({
+        event: "addDir",
+        isDirectory: true,
+        localPath: "moved-new-target",
+        moved: true,
+        sourcePath: sourceMovedDir,
+        stats: await fs.lstat(sourceMovedDir),
+        watchedLibrary: librariesWatcher.watchedLibraries[0]
+      })
+
+      await waitFor(async () => {
+        if (!await fileExists(targetMovedDir)) throw new Error("Target dir wasnt created")
+      })
+
+      await wait(200)
+      expect(await fileExists(targetMovedChild)).toBeFalse()
+    } finally {
+      await librariesWatcher.stopWatch()
+    }
+  })
+
   it("prioritizes immediate events ahead of normal queue", async () => {
     const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
     const handled = []
