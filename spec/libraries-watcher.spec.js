@@ -470,6 +470,189 @@ describe("libraries-watcher", () => {
     }
   })
 
+  it("syncs moved-in sub-folders even when target dir already exists", async () => {
+    const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
+    const stagedDirPath = `${testDirStaging}/incoming-existing/alpha/beta`
+    const stagedFilePath = `${stagedDirPath}/moved.txt`
+    const movedDirPath = `${testDirSource}/incoming-existing`
+    const movedTargetRootPath = `${testDirTarget}/incoming-existing`
+    const movedTargetFilePath = `${movedTargetRootPath}/alpha/beta/moved.txt`
+
+    await fs.mkdir(stagedDirPath, {recursive: true})
+    await fs.writeFile(stagedFilePath, "Moved content existing target")
+    await fs.mkdir(movedTargetRootPath, {recursive: true})
+
+    try {
+      await librariesWatcher.watch()
+      await fs.rename(`${testDirStaging}/incoming-existing`, movedDirPath)
+
+      await waitFor(async () => {
+        if (!await fileExists(movedTargetFilePath)) throw new Error("Target file doesnt exist for existing target dir")
+      })
+
+      await waitFor(async () => {
+        const fileContent = await fs.readFile(movedTargetFilePath, "utf8")
+
+        if (fileContent != "Moved content existing target") {
+          throw new Error(`Unexpected file content: ${fileContent}`)
+        }
+      })
+    } finally {
+      await librariesWatcher.stopWatch()
+    }
+  })
+
+  it("does not recursively sync existing target dir on plain addDir", async () => {
+    const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
+    const sourceExistingDir = `${testDirSource}/plain-existing`
+    const sourceExistingChild = `${sourceExistingDir}/child.txt`
+    const targetExistingDir = `${testDirTarget}/plain-existing`
+    const targetExistingChild = `${targetExistingDir}/child.txt`
+
+    await fs.mkdir(sourceExistingDir, {recursive: true})
+    await fs.writeFile(sourceExistingChild, "Source child")
+    await fs.mkdir(targetExistingDir, {recursive: true})
+
+    try {
+      await librariesWatcher.watch()
+
+      await librariesWatcher.handleEvent({
+        event: "addDir",
+        isDirectory: true,
+        localPath: "plain-existing",
+        moved: false,
+        sourcePath: sourceExistingDir,
+        stats: await fs.lstat(sourceExistingDir),
+        watchedLibrary: librariesWatcher.watchedLibraries[0]
+      })
+
+      await wait(200)
+      expect(await fileExists(targetExistingChild)).toBeFalse()
+    } finally {
+      await librariesWatcher.stopWatch()
+    }
+  })
+
+  it("recursively syncs existing target dir on moved addDir", async () => {
+    const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
+    const sourceExistingDir = `${testDirSource}/moved-existing`
+    const sourceExistingChild = `${sourceExistingDir}/child.txt`
+    const targetExistingDir = `${testDirTarget}/moved-existing`
+    const targetExistingChild = `${targetExistingDir}/child.txt`
+
+    await fs.mkdir(sourceExistingDir, {recursive: true})
+    await fs.writeFile(sourceExistingChild, "Source child moved")
+    await fs.mkdir(targetExistingDir, {recursive: true})
+
+    try {
+      await librariesWatcher.watch()
+
+      await librariesWatcher.handleEvent({
+        event: "addDir",
+        isDirectory: true,
+        localPath: "moved-existing",
+        moved: true,
+        sourcePath: sourceExistingDir,
+        stats: await fs.lstat(sourceExistingDir),
+        watchedLibrary: librariesWatcher.watchedLibraries[0]
+      })
+
+      await waitFor(async () => {
+        if (!await fileExists(targetExistingChild)) throw new Error("Target child file doesnt exist")
+      })
+
+      await waitFor(async () => {
+        const fileContent = await fs.readFile(targetExistingChild, "utf8")
+
+        if (fileContent != "Source child moved") {
+          throw new Error(`Unexpected file content: ${fileContent}`)
+        }
+      })
+    } finally {
+      await librariesWatcher.stopWatch()
+    }
+  })
+
+  it("does not recursively sync moved addDir when target dir is newly created", async () => {
+    const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
+    const sourceMovedDir = `${testDirSource}/moved-new-target`
+    const sourceMovedChild = `${sourceMovedDir}/child.txt`
+    const targetMovedDir = `${testDirTarget}/moved-new-target`
+    const targetMovedChild = `${targetMovedDir}/child.txt`
+
+    await fs.mkdir(sourceMovedDir, {recursive: true})
+    await fs.writeFile(sourceMovedChild, "Source child moved new target")
+    expect(await fileExists(targetMovedChild)).toBeFalse()
+
+    try {
+      await librariesWatcher.watch()
+
+      await librariesWatcher.handleEvent({
+        event: "addDir",
+        isDirectory: true,
+        localPath: "moved-new-target",
+        moved: true,
+        sourcePath: sourceMovedDir,
+        stats: await fs.lstat(sourceMovedDir),
+        watchedLibrary: librariesWatcher.watchedLibraries[0]
+      })
+
+      await waitFor(async () => {
+        if (!await fileExists(targetMovedDir)) throw new Error("Target dir wasnt created")
+      })
+
+      await wait(200)
+      expect(await fileExists(targetMovedChild)).toBeFalse()
+    } finally {
+      await librariesWatcher.stopWatch()
+    }
+  })
+
+  it("moves existing target dir for moved addDir when pending unlinkDir exists", async () => {
+    const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
+    const movedSourceOldDir = `${testDirSource}/move-source-old`
+    const movedSourceNewDir = `${testDirSource}/move-source-new`
+    const movedSourceNewChild = `${movedSourceNewDir}/child.txt`
+    const movedTargetOldDir = `${testDirTarget}/move-source-old`
+    const movedTargetNewDir = `${testDirTarget}/move-source-new`
+    const movedTargetNewChild = `${movedTargetNewDir}/child.txt`
+
+    await fs.mkdir(movedSourceNewDir, {recursive: true})
+    await fs.writeFile(movedSourceNewChild, "Moved child")
+    await fs.mkdir(movedTargetOldDir, {recursive: true})
+    await fs.writeFile(`${movedTargetOldDir}/child.txt`, "Moved child")
+
+    try {
+      await librariesWatcher.watch()
+      const watchedLibrary = librariesWatcher.watchedLibraries[0]
+
+      librariesWatcher.registerPendingUnlinkDir({
+        localPath: "move-source-old",
+        watchedLibrary
+      })
+
+      await librariesWatcher.handleEvent({
+        event: "addDir",
+        isDirectory: true,
+        localPath: "move-source-new",
+        moved: true,
+        sourcePath: movedSourceNewDir,
+        stats: await fs.lstat(movedSourceNewDir),
+        watchedLibrary
+      })
+
+      await waitFor(async () => {
+        if (!await fileExists(movedTargetNewChild)) throw new Error("Moved target child file doesnt exist")
+      })
+
+      await waitFor(async () => {
+        if (await fileExists(movedTargetOldDir)) throw new Error("Old target dir still exists")
+      })
+    } finally {
+      await librariesWatcher.stopWatch()
+    }
+  })
+
   it("prioritizes immediate events ahead of normal queue", async () => {
     const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
     const handled = []

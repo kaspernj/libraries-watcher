@@ -3,6 +3,7 @@
  * @property {import("chokidar/handler.js").EventName | "changeDir"} event
  * @property {boolean} isDirectory
  * @property {string} localPath
+ * @property {boolean} [moved]
  * @property {string} sourcePath
  * @property {import("fs").Stats} stats
  * @property {import("./watched-library.js").default} watchedLibrary
