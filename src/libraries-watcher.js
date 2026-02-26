@@ -27,6 +27,7 @@ export default class LibrariesWatcher {
     this.immediateEvents = new Set(immediateEvents)
     this.watchedLibraryIds = new WeakMap()
     this.nextWatchedLibraryId = 1
+    this.pendingUnlinkDirs = new Map()
 
     /** @type {Array<WatchedLibrary>} */
     this.watchedLibraries = []
@@ -86,6 +87,13 @@ export default class LibrariesWatcher {
    * @returns {void}
    */
   enqueueEvent(event) {
+    if (event.event == "unlinkDir") {
+      this.registerPendingUnlinkDir({
+        localPath: event.localPath,
+        watchedLibrary: event.watchedLibrary
+      })
+    }
+
     const queueKey = this.getQueueKey(event)
 
     if (this.queuedEvents.has(queueKey)) {
@@ -230,6 +238,7 @@ export default class LibrariesWatcher {
 
         let shouldSyncDirectoryContents = false
         const targetPathExists = await pathExists(targetPath)
+        let movedTargetDir = false
 
         if (!targetPathExists) {
           if (this.verbose) console.log(`Create dir ${targetPath}`)
@@ -259,7 +268,21 @@ export default class LibrariesWatcher {
 
           await fs.chown(targetPath, lstat.uid, lstat.gid)
           await fs.chmod(targetPath, lstat.mode)
-          shouldSyncDirectoryContents = !moved
+
+          if (moved) {
+            const moveSourceLocalPath = this.consumePendingUnlinkDirForMove({watchedLibrary})
+
+            if (moveSourceLocalPath) {
+              const sourceTargetPath = `${destination}/${moveSourceLocalPath}`
+
+              if (await pathExists(sourceTargetPath)) {
+                await fs.rename(sourceTargetPath, targetPath)
+                movedTargetDir = true
+              }
+            }
+          }
+
+          shouldSyncDirectoryContents = !moved && !movedTargetDir
         }
 
         if (targetPathExists && moved) {
@@ -371,6 +394,11 @@ export default class LibrariesWatcher {
             throw error
           }
         }
+
+        this.clearPendingUnlinkDir({
+          localPath,
+          watchedLibrary
+        })
       } else {
         if (this.verbose) console.log(`${localPath} ${event} unknown!`)
       }
@@ -519,5 +547,72 @@ export default class LibrariesWatcher {
     }
 
     return watchedLibraryId
+  }
+
+  /**
+   * @param {object} args
+   * @param {string} args.localPath
+   * @param {import("./watched-library.js").default} args.watchedLibrary
+   * @returns {void}
+   */
+  registerPendingUnlinkDir({localPath, watchedLibrary}) {
+    const watchedLibraryId = this.getWatchedLibraryId(watchedLibrary)
+    let pendingUnlinksForLibrary = this.pendingUnlinkDirs.get(watchedLibraryId)
+
+    if (!pendingUnlinksForLibrary) {
+      pendingUnlinksForLibrary = []
+      this.pendingUnlinkDirs.set(watchedLibraryId, pendingUnlinksForLibrary)
+    }
+
+    pendingUnlinksForLibrary.unshift(localPath)
+
+    if (pendingUnlinksForLibrary.length > 50) {
+      pendingUnlinksForLibrary.length = 50
+    }
+  }
+
+  /**
+   * @param {object} args
+   * @param {import("./watched-library.js").default} args.watchedLibrary
+   * @returns {string | null}
+   */
+  consumePendingUnlinkDirForMove({watchedLibrary}) {
+    const watchedLibraryId = this.getWatchedLibraryId(watchedLibrary)
+    const pendingUnlinksForLibrary = this.pendingUnlinkDirs.get(watchedLibraryId)
+
+    if (!pendingUnlinksForLibrary || pendingUnlinksForLibrary.length == 0) {
+      return null
+    }
+
+    const moveSourceLocalPath = pendingUnlinksForLibrary.shift()
+
+    if (pendingUnlinksForLibrary.length == 0) {
+      this.pendingUnlinkDirs.delete(watchedLibraryId)
+    }
+
+    return moveSourceLocalPath || null
+  }
+
+  /**
+   * @param {object} args
+   * @param {string} args.localPath
+   * @param {import("./watched-library.js").default} args.watchedLibrary
+   * @returns {void}
+   */
+  clearPendingUnlinkDir({localPath, watchedLibrary}) {
+    const watchedLibraryId = this.getWatchedLibraryId(watchedLibrary)
+    const pendingUnlinksForLibrary = this.pendingUnlinkDirs.get(watchedLibraryId)
+
+    if (!pendingUnlinksForLibrary) {
+      return
+    }
+
+    const filteredPaths = pendingUnlinksForLibrary.filter(pathInQueue => pathInQueue != localPath)
+
+    if (filteredPaths.length > 0) {
+      this.pendingUnlinkDirs.set(watchedLibraryId, filteredPaths)
+    } else {
+      this.pendingUnlinkDirs.delete(watchedLibraryId)
+    }
   }
 }

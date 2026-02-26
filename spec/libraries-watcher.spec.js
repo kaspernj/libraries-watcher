@@ -582,6 +582,7 @@ describe("libraries-watcher", () => {
 
     await fs.mkdir(sourceMovedDir, {recursive: true})
     await fs.writeFile(sourceMovedChild, "Source child moved new target")
+    expect(await fileExists(targetMovedChild)).toBeFalse()
 
     try {
       await librariesWatcher.watch()
@@ -602,6 +603,51 @@ describe("libraries-watcher", () => {
 
       await wait(200)
       expect(await fileExists(targetMovedChild)).toBeFalse()
+    } finally {
+      await librariesWatcher.stopWatch()
+    }
+  })
+
+  it("moves existing target dir for moved addDir when pending unlinkDir exists", async () => {
+    const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
+    const movedSourceOldDir = `${testDirSource}/move-source-old`
+    const movedSourceNewDir = `${testDirSource}/move-source-new`
+    const movedSourceNewChild = `${movedSourceNewDir}/child.txt`
+    const movedTargetOldDir = `${testDirTarget}/move-source-old`
+    const movedTargetNewDir = `${testDirTarget}/move-source-new`
+    const movedTargetNewChild = `${movedTargetNewDir}/child.txt`
+
+    await fs.mkdir(movedSourceNewDir, {recursive: true})
+    await fs.writeFile(movedSourceNewChild, "Moved child")
+    await fs.mkdir(movedTargetOldDir, {recursive: true})
+    await fs.writeFile(`${movedTargetOldDir}/child.txt`, "Moved child")
+
+    try {
+      await librariesWatcher.watch()
+      const watchedLibrary = librariesWatcher.watchedLibraries[0]
+
+      librariesWatcher.registerPendingUnlinkDir({
+        localPath: "move-source-old",
+        watchedLibrary
+      })
+
+      await librariesWatcher.handleEvent({
+        event: "addDir",
+        isDirectory: true,
+        localPath: "move-source-new",
+        moved: true,
+        sourcePath: movedSourceNewDir,
+        stats: await fs.lstat(movedSourceNewDir),
+        watchedLibrary
+      })
+
+      await waitFor(async () => {
+        if (!await fileExists(movedTargetNewChild)) throw new Error("Moved target child file doesnt exist")
+      })
+
+      await waitFor(async () => {
+        if (await fileExists(movedTargetOldDir)) throw new Error("Old target dir still exists")
+      })
     } finally {
       await librariesWatcher.stopWatch()
     }
