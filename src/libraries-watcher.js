@@ -27,6 +27,8 @@ export default class LibrariesWatcher {
     this.immediateEvents = new Set(immediateEvents)
     this.watchedLibraryIds = new WeakMap()
     this.nextWatchedLibraryId = 1
+    this.directorySyncTimestamps = new Map()
+    this.directorySyncDebounceMs = 1000
 
     /** @type {Array<WatchedLibrary>} */
     this.watchedLibraries = []
@@ -259,6 +261,10 @@ export default class LibrariesWatcher {
 
           await fs.chown(targetPath, lstat.uid, lstat.gid)
           await fs.chmod(targetPath, lstat.mode)
+          shouldSyncDirectoryContents = true
+        }
+
+        if (targetPathExists && this.shouldSyncExistingDirectoryContents({localPath, watchedLibrary})) {
           shouldSyncDirectoryContents = true
         }
 
@@ -515,5 +521,25 @@ export default class LibrariesWatcher {
     }
 
     return watchedLibraryId
+  }
+
+  /**
+   * @param {object} args
+   * @param {string} args.localPath
+   * @param {import("./watched-library.js").default} args.watchedLibrary
+   * @returns {boolean}
+   */
+  shouldSyncExistingDirectoryContents({localPath, watchedLibrary}) {
+    const syncKey = `${this.getWatchedLibraryId(watchedLibrary)}:${localPath}`
+    const now = Date.now()
+    const lastSyncAt = this.directorySyncTimestamps.get(syncKey)
+
+    if (lastSyncAt && now - lastSyncAt < this.directorySyncDebounceMs) {
+      return false
+    }
+
+    this.directorySyncTimestamps.set(syncKey, now)
+
+    return true
   }
 }

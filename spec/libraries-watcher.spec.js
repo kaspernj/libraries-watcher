@@ -470,6 +470,38 @@ describe("libraries-watcher", () => {
     }
   })
 
+  it("syncs moved-in sub-folders even when target dir already exists", async () => {
+    const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
+    const stagedDirPath = `${testDirStaging}/incoming-existing/alpha/beta`
+    const stagedFilePath = `${stagedDirPath}/moved.txt`
+    const movedDirPath = `${testDirSource}/incoming-existing`
+    const movedTargetRootPath = `${testDirTarget}/incoming-existing`
+    const movedTargetFilePath = `${movedTargetRootPath}/alpha/beta/moved.txt`
+
+    await fs.mkdir(stagedDirPath, {recursive: true})
+    await fs.writeFile(stagedFilePath, "Moved content existing target")
+    await fs.mkdir(movedTargetRootPath, {recursive: true})
+
+    try {
+      await librariesWatcher.watch()
+      await fs.rename(`${testDirStaging}/incoming-existing`, movedDirPath)
+
+      await waitFor(async () => {
+        if (!await fileExists(movedTargetFilePath)) throw new Error("Target file doesnt exist for existing target dir")
+      })
+
+      await waitFor(async () => {
+        const fileContent = await fs.readFile(movedTargetFilePath, "utf8")
+
+        if (fileContent != "Moved content existing target") {
+          throw new Error(`Unexpected file content: ${fileContent}`)
+        }
+      })
+    } finally {
+      await librariesWatcher.stopWatch()
+    }
+  })
+
   it("prioritizes immediate events ahead of normal queue", async () => {
     const librariesWatcher = new LibrariesWatcher({libraries: config, verbose: false})
     const handled = []
