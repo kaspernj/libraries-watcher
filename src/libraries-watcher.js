@@ -66,7 +66,6 @@ export default class LibrariesWatcher {
     try {
       if (this.handlingEvents) return
       this.handlingEvents = true
-      let processedSinceYield = 0
 
       while (this.immediateEventsQueue.length > 0 || this.events.length > 0) {
         const event = this.immediateEventsQueue.shift() ?? this.events.shift()
@@ -74,12 +73,6 @@ export default class LibrariesWatcher {
         if (event) {
           this.queuedEvents.delete(this.getQueueKey(event))
           await this.handleEvent(event)
-          processedSinceYield += 1
-
-          if (processedSinceYield >= 500) {
-            processedSinceYield = 0
-            await this.yieldEventLoop()
-          }
         }
       }
     } finally {
@@ -522,10 +515,5 @@ export default class LibrariesWatcher {
     }
 
     return watchedLibraryId
-  }
-
-  /** @returns {Promise<void>} */
-  async yieldEventLoop() {
-    await new Promise(resolve => setImmediate(resolve))
   }
 }
