@@ -66,6 +66,7 @@ export default class LibrariesWatcher {
     try {
       if (this.handlingEvents) return
       this.handlingEvents = true
+      let processedSinceYield = 0
 
       while (this.immediateEventsQueue.length > 0 || this.events.length > 0) {
         const event = this.immediateEventsQueue.shift() ?? this.events.shift()
@@ -73,6 +74,12 @@ export default class LibrariesWatcher {
         if (event) {
           this.queuedEvents.delete(this.getQueueKey(event))
           await this.handleEvent(event)
+          processedSinceYield += 1
+
+          if (processedSinceYield >= 500) {
+            processedSinceYield = 0
+            await this.yieldEventLoop()
+          }
         }
       }
     } finally {
@@ -228,7 +235,10 @@ export default class LibrariesWatcher {
           await fs.mkdir(dirName, {recursive: true})
         }
 
-        if (!await pathExists(targetPath)) {
+        let shouldSyncDirectoryContents = false
+        const targetPathExists = await pathExists(targetPath)
+
+        if (!targetPathExists) {
           if (this.verbose) console.log(`Create dir ${targetPath}`)
 
           let lstat
@@ -256,9 +266,12 @@ export default class LibrariesWatcher {
 
           await fs.chown(targetPath, lstat.uid, lstat.gid)
           await fs.chmod(targetPath, lstat.mode)
+          shouldSyncDirectoryContents = true
         }
 
-        await this.syncDirectoryContents({localPath, sourcePath, watchedLibrary})
+        if (shouldSyncDirectoryContents) {
+          await this.syncDirectoryContents({localPath, sourcePath, watchedLibrary})
+        }
       } else if (event == "change") {
         if (this.verbose) console.log(`Copy ${sourcePath} to ${targetPath}`)
 
@@ -509,5 +522,10 @@ export default class LibrariesWatcher {
     }
 
     return watchedLibraryId
+  }
+
+  /** @returns {Promise<void>} */
+  async yieldEventLoop() {
+    await new Promise(resolve => setImmediate(resolve))
   }
 }

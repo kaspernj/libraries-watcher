@@ -44,8 +44,12 @@ export default class WatchedLibrary {
    * @returns {boolean}
    */
   shouldIgnore = ({fileName}) => {
-    if (fileName.startsWith(".") || fileName == "node_modules") {
-      return true
+    const pathParts = fileName.split(path.sep)
+
+    for (const pathPart of pathParts) {
+      if (pathPart == "node_modules" || pathPart.startsWith(".")) {
+        return true
+      }
     }
 
     return false

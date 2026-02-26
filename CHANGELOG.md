@@ -8,3 +8,6 @@
 - Sync source file metadata timestamps to targets after copy so mtime-based change checks remain stable.
 - De-duplicate queued filesystem events per watched library/path/event to reduce repeated processing bursts.
 - Reduce verbose logging noise by not logging every unchanged-file skip.
+- Ignore nested `node_modules` and dot-prefixed path segments at any depth to reduce unnecessary watcher churn.
+- Avoid repeated recursive directory sync scans on duplicate `addDir` events when destination directories already exist.
+- Yield the event loop while draining large watcher queues to avoid event-loop starvation under bursty rebuilds.
