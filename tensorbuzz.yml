@@ -1,0 +1,11 @@
+builds:
+  test:
+    dependency_roots:
+      - path: .
+    paths:
+      - "**"
+      - "!**/*.md"
+      - "!**/*.txt"
+    script:
+      - npm test
+      - npm run typecheck
